@@ -7,6 +7,7 @@ import { VoiceControl } from './components/VoiceControl';
 import { DataVisualization } from './components/DataVisualization';
 import { ChatTranscript } from './components/ChatTranscript';
 import { DatasetPanel } from './components/DatasetPanel';
+import { MetricsPanel } from './components/MetricsPanel';
 import type { AppState, Message, ChartData, Dataset } from './types';
 import './styles/index.css';
 
@@ -72,6 +73,7 @@ function App() {
   const [currentChart, setCurrentChart] = useState<ChartData | null>(null);
   const [generationIdCounter, setGenerationIdCounter] = useState(1);
   const [activeDatasetId, setActiveDatasetId] = useState<string>(DATASETS[0].id);
+  const [customDatasets, setCustomDatasets] = useState<Dataset[]>([]);
 
   const wsUrl = getWsUrl();
   const { sendMessage, lastMessage, connectionState } = useWebSocket(wsUrl);
@@ -236,15 +238,20 @@ function App() {
             onInterrupt={handleInterrupt}
             onSendQuery={handleSendQuery}
             suggestedQueries={SUGGESTED_QUERIES}
+            hasMessages={messages.length > 0}
           />
         </div>
         
-        <DatasetPanel 
-          datasets={DATASETS}
-          activeDatasetId={activeDatasetId}
-          onSelectDataset={setActiveDatasetId}
-          onQuickQuery={handleSendQuery}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', minHeight: 0 }}>
+          <DatasetPanel 
+            datasets={[...DATASETS, ...customDatasets]}
+            activeDatasetId={activeDatasetId}
+            onSelectDataset={setActiveDatasetId}
+            onQuickQuery={handleSendQuery}
+            onUploadDataset={(ds) => setCustomDatasets(prev => [...prev, ds])}
+          />
+          <MetricsPanel />
+        </div>
       </main>
     </div>
   );

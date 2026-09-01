@@ -541,6 +541,27 @@ body::before {
   line-height: 1.5;
 }
 
+.upload-section {
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.upload-section:hover {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: var(--primary-accent);
+  color: var(--text-primary);
+}
+
 /* ─── Dataset Panel ─────────────────────────────────── */
 .dataset-panel {
   padding: 16px;

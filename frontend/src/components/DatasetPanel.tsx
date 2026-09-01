@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import type { Dataset } from '../types';
 
 interface DatasetPanelProps {
@@ -6,6 +6,7 @@ interface DatasetPanelProps {
   activeDatasetId: string;
   onSelectDataset: (id: string) => void;
   onQuickQuery: (query: string) => void;
+  onUploadDataset: (dataset: Dataset) => void;
 }
 
 /* SVG icons per dataset ID — no emojis */
@@ -41,10 +42,73 @@ export const DatasetPanel: React.FC<DatasetPanelProps> = ({
   datasets, 
   activeDatasetId, 
   onSelectDataset,
-  onQuickQuery
+  onQuickQuery,
+  onUploadDataset
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadStatus('Uploading...');
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${baseUrl}/api/upload-csv`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) throw new Error('Upload failed');
+      
+      const data = await response.json();
+      onUploadDataset({
+        id: data.id,
+        name: data.name,
+        description: `Uploaded CSV (${data.row_count} rows)`,
+        rowCount: data.row_count,
+        columns: data.columns,
+      });
+      setUploadStatus('Success!');
+      setTimeout(() => setUploadStatus(''), 3000);
+    } catch (error) {
+      console.error(error);
+      setUploadStatus('Error uploading file');
+      setTimeout(() => setUploadStatus(''), 3000);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   return (
-    <div className="dataset-panel glass-card" style={{ height: '100%' }}>
+    <div className="dataset-panel glass-card" style={{ flex: 1, minHeight: 0 }}>
+      <div className="upload-section" onClick={() => !uploading && fileInputRef.current?.click()}>
+        <input 
+          type="file" 
+          accept=".csv" 
+          style={{ display: 'none' }} 
+          ref={fileInputRef}
+          onChange={handleFileChange}
+        />
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        <div style={{ marginTop: '8px' }}>
+          {uploading ? uploadStatus : 'Upload CSV'}
+        </div>
+        {!uploading && uploadStatus && <div style={{ fontSize: '0.75rem', color: 'var(--success-color)', marginTop: '4px' }}>{uploadStatus}</div>}
+      </div>
+
       <h3 className="panel-title">Data Sources</h3>
       
       {datasets.map(dataset => (

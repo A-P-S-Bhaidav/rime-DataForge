@@ -9,9 +9,12 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+import pandas as pd
+import io
+from collections import deque
 
 from conversation import ConversationState
 from data_engine import DataEngine
@@ -54,6 +57,38 @@ data_engine = DataEngine()
 rime_api_key = os.getenv("RIME_API_KEY", "")
 gemini_api_key = os.getenv("GEMINI_API_KEY", "")
 
+class MetricsCollector:
+    def __init__(self):
+        self.queries = deque(maxlen=100)
+        self.total_queries = 0
+
+    def add_metric(self, metric: dict):
+        self.queries.append(metric)
+        self.total_queries += 1
+
+    def get_metrics(self):
+        queries_list = list(self.queries)
+        if not queries_list:
+            return {
+                "queries": [],
+                "averages": {"avg_filler": 0, "avg_llm": 0, "avg_tts": 0, "avg_total": 0},
+                "query_count": self.total_queries
+            }
+        
+        return {
+            "queries": queries_list,
+            "averages": {
+                "avg_filler": sum(m.get("filler_latency_ms", 0) for m in queries_list) / len(queries_list),
+                "avg_llm": sum(m.get("llm_latency_ms", 0) for m in queries_list) / len(queries_list),
+                "avg_tts": sum(m.get("tts_latency_ms", 0) for m in queries_list) / len(queries_list),
+                "avg_total": sum(m.get("total_latency_ms", 0) for m in queries_list) / len(queries_list)
+            },
+            "query_count": self.total_queries
+        }
+
+metrics_collector = MetricsCollector()
+
+
 
 @app.get("/health")
 async def health_check():
@@ -82,6 +117,45 @@ async def debug_llm():
 async def list_datasets():
     """List available datasets with metadata."""
     return {"datasets": data_engine.list_datasets()}
+
+
+@app.post("/api/upload-csv")
+async def upload_csv(file: UploadFile = File(...)):
+    """Upload a CSV dataset."""
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+    
+    # Read file content and check size (10MB limit)
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+        
+    try:
+        # Parse CSV
+        df = pd.read_csv(io.BytesIO(contents))
+        
+        # Auto-generate dataset ID from filename (lowercase, no spaces)
+        dataset_id = file.filename.rsplit('.', 1)[0].lower().replace(" ", "_")
+        
+        # Store in data_engine
+        data_engine.add_dataset(dataset_id, df, f"Uploaded dataset: {file.filename}")
+        
+        return {
+            "id": dataset_id,
+            "name": dataset_id,
+            "columns": list(df.columns),
+            "row_count": len(df),
+            "sample_data": df.head(5).to_dict(orient="records")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
+
+
+@app.get("/api/metrics")
+async def get_metrics():
+    """Get query latency metrics."""
+    return metrics_collector.get_metrics()
+
 
 
 @app.websocket("/ws")
@@ -240,10 +314,24 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
                 t_end = time.monotonic()
+                total_latency_ms = (t_end - t_start) * 1000
+                llm_latency_ms = (t_llm - t_start) * 1000
+                tts_latency_ms = total_latency_ms - llm_latency_ms # Approx TTS processing/streaming latency
+                
                 logger.info(
-                    f"[gen={gen_id}] Complete. Total: {(t_end - t_start) * 1000:.0f}ms, "
+                    f"[gen={gen_id}] Complete. Total: {total_latency_ms:.0f}ms, "
                     f"Chunks: {chunk_count}"
                 )
+                
+                # Record metrics
+                metrics_collector.add_metric({
+                    "timestamp": time.time(),
+                    "query_text": text[:50],
+                    "filler_latency_ms": filler_latency_ms,
+                    "llm_latency_ms": llm_latency_ms,
+                    "tts_latency_ms": tts_latency_ms,
+                    "total_latency_ms": total_latency_ms
+                })
 
         except asyncio.CancelledError:
             logger.info(f"[gen={gen_id}] Task cancelled")

@@ -20,6 +20,7 @@ class DataEngine:
 
     def __init__(self):
         self.datasets: Dict[str, pd.DataFrame] = {}
+        self.dataset_descriptions: Dict[str, str] = {}
         self._generate_synthetic_data()
         logger.info(f"DataEngine initialized with {len(self.datasets)} datasets")
 
@@ -102,29 +103,29 @@ class DataEngine:
                 "headcount": int(30 + i * 0.8 + np.random.randint(-2, 3)),
             })
         self.datasets["financials"] = pd.DataFrame(fin_rows)
+        
+        self.dataset_descriptions["sales"] = "Sales transactions by region, product, quarter, and rep"
+        self.dataset_descriptions["users"] = "Daily user analytics: DAU, sessions, bounce rate, page views"
+        self.dataset_descriptions["financials"] = "Monthly financial data: revenue, expenses, profit by category"
 
     def list_datasets(self) -> List[Dict[str, Any]]:
         """Return metadata about all available datasets."""
-        return [
-            {
-                "name": "sales",
-                "description": "Sales transactions by region, product, quarter, and rep",
-                "rows": len(self.datasets["sales"]),
-                "columns": list(self.datasets["sales"].columns),
-            },
-            {
-                "name": "users",
-                "description": "Daily user analytics: DAU, sessions, bounce rate, page views",
-                "rows": len(self.datasets["users"]),
-                "columns": list(self.datasets["users"].columns),
-            },
-            {
-                "name": "financials",
-                "description": "Monthly financial data: revenue, expenses, profit by category",
-                "rows": len(self.datasets["financials"]),
-                "columns": list(self.datasets["financials"].columns),
-            },
-        ]
+        metadata = []
+        for name in self.datasets.keys():
+            df = self.datasets[name]
+            metadata.append({
+                "name": name,
+                "description": self.dataset_descriptions.get(name, "Uploaded dataset"),
+                "rows": len(df),
+                "columns": list(df.columns),
+            })
+        return metadata
+
+    def add_dataset(self, name: str, df: pd.DataFrame, description: str = "Uploaded dataset"):
+        """Add a new dataset to the engine."""
+        self.datasets[name] = df
+        self.dataset_descriptions[name] = description
+        logger.info(f"Added new dataset '{name}' with {len(df)} rows")
 
     async def execute_query(
         self,

@@ -11,7 +11,14 @@ interface VoiceControlProps {
   onInterrupt: () => void;
   onSendQuery: (query: string) => void;
   suggestedQueries: string[];
+  hasMessages?: boolean;
 }
+
+const FOLLOW_UP_QUERIES = [
+  "Filter by North region",
+  "Break it down by product",
+  "Show the trend over time"
+];
 
 export const VoiceControl: React.FC<VoiceControlProps> = ({
   appState,
@@ -21,7 +28,8 @@ export const VoiceControl: React.FC<VoiceControlProps> = ({
   onToggleListening,
   onInterrupt,
   onSendQuery,
-  suggestedQueries
+  suggestedQueries,
+  hasMessages
 }) => {
   const [textInput, setTextInput] = useState('');
 
@@ -132,7 +140,7 @@ export const VoiceControl: React.FC<VoiceControlProps> = ({
           </div>
           
           <div className="chips">
-            {suggestedQueries.map((q, i) => (
+            {(hasMessages ? FOLLOW_UP_QUERIES : suggestedQueries).map((q, i) => (
               <div key={i} className="chip" onClick={() => onSendQuery(q)}>
                 {q}
               </div>
