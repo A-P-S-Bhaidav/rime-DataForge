@@ -65,6 +65,19 @@ async def health_check():
     }
 
 
+@app.get("/debug-llm")
+async def debug_llm():
+    """Debug endpoint to test LLM directly."""
+    try:
+        llm = LLMService(api_key=gemini_api_key)
+        datasets = data_engine.list_datasets()
+        result = await llm.analyze_query("Show me total sales by region", [], datasets)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/datasets")
 async def list_datasets():
     """List available datasets with metadata."""
