@@ -18,10 +18,16 @@ from data_engine import DataEngine
 from rime_tts import RimeTTS
 from llm_service import LLMService
 
-# Load .env from project root
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(env_path)
-load_dotenv()  # Also check local .env
+# Load .env for local development (Railway injects env vars directly)
+try:
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+    local_env = Path(__file__).resolve().parent / ".env"
+    if local_env.exists():
+        load_dotenv(local_env)
+except Exception:
+    pass  # On Railway/Render, env vars are injected by the platform
 
 logging.basicConfig(
     level=logging.INFO,
