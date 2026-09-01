@@ -13,16 +13,13 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
   
   const audioContext = useRef<AudioContext | null>(null);
   const audioQueue = useRef<AudioBuffer[]>([]);
-  
   const isPlayingQueue = useRef(false);
   const currentSource = useRef<AudioBufferSourceNode | null>(null);
-  const nextPlayTime = useRef(0);
   const activeGeneration = useRef<number | null>(null);
 
-  // Initialize AudioContext lazily to comply with browser autoplay policies
   const initAudioContext = () => {
     if (!audioContext.current) {
-      audioContext.current = new window.AudioContext();
+      audioContext.current = new window.AudioContext({ sampleRate: 44100 });
     }
     if (audioContext.current.state === 'suspended') {
       audioContext.current.resume();
@@ -37,45 +34,41 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
       return;
     }
     
-    if (!audioContext.current) return;
+    const ctx = audioContext.current;
+    if (!ctx) return;
     
     isPlayingQueue.current = true;
     setIsPlaying(true);
     
     const buffer = audioQueue.current.shift()!;
-    const source = audioContext.current.createBufferSource();
+    const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(audioContext.current.destination);
     
-    const currentTime = audioContext.current.currentTime;
-    const playTime = Math.max(currentTime, nextPlayTime.current);
+    // Add a small gain to normalize volume
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = 1.0;
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
     
-    source.start(playTime);
-    nextPlayTime.current = playTime + buffer.duration;
-    
+    source.start(0);
     currentSource.current = source;
     
     source.onended = () => {
-      // Check if we need to play next, small buffer
+      currentSource.current = null;
       if (audioQueue.current.length > 0) {
         playNextInQueue();
       } else {
-        // Wait a bit to see if more chunks arrive
-        setTimeout(() => {
-          if (audioQueue.current.length === 0) {
-            isPlayingQueue.current = false;
-            setIsPlaying(false);
-          } else {
-            playNextInQueue();
-          }
-        }, 100);
+        isPlayingQueue.current = false;
+        setIsPlaying(false);
       }
     };
   }, []);
 
-  const playChunk = useCallback((base64Data: string, generationId: number, isFinal: boolean) => {
+  const playChunk = useCallback((base64Data: string, generationId: number, _isFinal: boolean) => {
+    // Skip empty data (final marker)
+    if (!base64Data) return;
+
     if (activeGeneration.current !== generationId && activeGeneration.current !== null) {
-      // If we receive a chunk for a new generation, clear previous queue
       stop();
     }
     
@@ -93,27 +86,23 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
         bytes[i] = binaryString.charCodeAt(i);
       }
       
-      ctx.decodeAudioData(bytes.buffer, (buffer) => {
-        // Double check generation id hasn't changed while decoding
+      // Use a copy of the buffer (decodeAudioData detaches the original)
+      const audioBuffer = bytes.buffer.slice(0);
+      
+      ctx.decodeAudioData(audioBuffer, (buffer) => {
         if (activeGeneration.current !== generationId) return;
         
         audioQueue.current.push(buffer);
         
         if (!isPlayingQueue.current) {
-          nextPlayTime.current = ctx.currentTime;
           playNextInQueue();
         }
       }, (e) => {
-        console.error('Error decoding audio data', e);
+        console.error('Error decoding audio data:', e);
       });
       
     } catch (e) {
-      console.error('Error parsing audio base64', e);
-    }
-    
-    if (isFinal) {
-      // We know this is the last chunk for this generation
-      // When queue empties, we reset generation tracking
+      console.error('Error parsing audio base64:', e);
     }
   }, [playNextInQueue]);
 
@@ -128,7 +117,6 @@ export function useAudioPlayer(): UseAudioPlayerReturn {
     
     audioQueue.current = [];
     isPlayingQueue.current = false;
-    nextPlayTime.current = 0;
     activeGeneration.current = null;
     setIsPlaying(false);
     setCurrentGenerationId(null);

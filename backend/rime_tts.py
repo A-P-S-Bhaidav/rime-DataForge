@@ -1,6 +1,6 @@
 """
-Rime TTS Streaming Client for DataForge
-Handles streaming synthesis, filler speech, and cancellation.
+Rime TTS Client for DataForge
+Handles synthesis, filler speech, and cancellation.
 
 Rime Configuration:
   - Model: coda (flagship)
@@ -8,7 +8,7 @@ Rime Configuration:
   - Language: en
   - Endpoint: https://users.rime.ai/v1/rime-tts
   - Audio Format: mp3 (Accept: audio/mpeg)
-  - Transport: Streaming HTTP
+  - Transport: HTTP (full response, then chunk for streaming)
 """
 
 import httpx
@@ -65,11 +65,11 @@ def pick_filler(query_text: str) -> str:
 
 class RimeTTS:
     """
-    Rime TTS streaming client with cancellation support.
+    Rime TTS client with cancellation support.
     
-    Uses the Coda model with the celeste voice via streaming HTTP.
-    Supports both full synthesis (for fillers) and streaming synthesis
-    (for main responses).
+    Uses the Coda model with the celeste voice.
+    Synthesizes full audio, then sends in properly-sized chunks
+    to avoid broken MP3 frames in the browser.
     """
 
     RIME_ENDPOINT = "https://users.rime.ai/v1/rime-tts"
@@ -85,7 +85,7 @@ class RimeTTS:
     async def _get_client(self) -> httpx.AsyncClient:
         """Reuse httpx client for connection pooling."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=15.0)
+            self._client = httpx.AsyncClient(timeout=30.0)
         return self._client
 
     def _headers(self) -> dict:
@@ -95,11 +95,13 @@ class RimeTTS:
             "Accept": "audio/mpeg",
         }
 
-    def _body(self, text: str) -> dict:
+    def _body(self, text: str, speed: float = 1.0) -> dict:
         return {
             "text": text,
             "speaker": self.SPEAKER,
             "modelId": self.MODEL_ID,
+            "speedAlpha": speed,
+            "reduceLatency": True,
         }
 
     def cancel(self):
@@ -110,21 +112,20 @@ class RimeTTS:
         """
         Synthesize a short contextual filler phrase.
         Returns base64-encoded MP3 audio string, or None on failure.
-        Designed to complete in < 500ms for low perceived latency.
         """
         filler_text = pick_filler(query_text)
         self.last_filler_text = filler_text
 
         if not self.api_key:
-            logger.warning("No Rime API key — returning mock filler")
-            return base64.b64encode(b"mock_filler_audio").decode("utf-8")
+            logger.warning("No Rime API key — skipping filler")
+            return None
 
         try:
             client = await self._get_client()
             response = await client.post(
                 self.RIME_ENDPOINT,
                 headers=self._headers(),
-                json=self._body(filler_text),
+                json=self._body(filler_text, speed=1.05),
             )
             response.raise_for_status()
             return base64.b64encode(response.content).decode("utf-8")
@@ -136,39 +137,43 @@ class RimeTTS:
         self, text: str, generation_id: int
     ) -> AsyncGenerator[str, None]:
         """
-        Stream Rime TTS audio in base64-encoded MP3 chunks.
+        Synthesize full audio then yield in large chunks for smooth playback.
         
-        Yields base64 strings. Checks active_generation_id between
-        chunks to support cancellation.
+        Instead of streaming tiny 4KB chunks (which cause broken MP3 frames
+        and crackling in the browser), we fetch the complete audio and split
+        it into properly-sized chunks that the browser can decode cleanly.
         """
         self.active_generation_id = generation_id
 
         if not self.api_key:
-            logger.warning("No Rime API key — yielding mock audio")
-            yield base64.b64encode(b"mock_audio_chunk_data").decode("utf-8")
+            logger.warning("No Rime API key — yielding nothing")
             return
 
         try:
+            # Fetch complete audio (Rime is fast enough for <3 sentence responses)
             client = await self._get_client()
-            async with client.stream(
-                "POST",
+            response = await client.post(
                 self.RIME_ENDPOINT,
                 headers=self._headers(),
                 json=self._body(text),
-                timeout=15.0,
-            ) as response:
-                response.raise_for_status()
-                async for chunk in response.aiter_bytes(chunk_size=4096):
-                    # Check for cancellation
-                    if self.active_generation_id != generation_id:
-                        logger.info(f"TTS cancelled for gen={generation_id}")
-                        return
-                    if chunk:
-                        yield base64.b64encode(chunk).decode("utf-8")
+                timeout=20.0,
+            )
+            response.raise_for_status()
+            
+            audio_data = response.content
+            
+            if self.active_generation_id != generation_id:
+                return
+            
+            # Send as a single complete audio chunk for clean playback
+            # This avoids MP3 frame boundary issues entirely
+            if audio_data:
+                yield base64.b64encode(audio_data).decode("utf-8")
+                
         except httpx.HTTPStatusError as e:
             logger.error(f"Rime API error {e.response.status_code}: {e.response.text[:200]}")
         except Exception as e:
-            logger.error(f"TTS streaming error: {e}")
+            logger.error(f"TTS synthesis error: {e}")
 
     async def close(self):
         """Close the HTTP client."""
