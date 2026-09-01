@@ -143,32 +143,6 @@ function App() {
     }
   }, [lastMessage, playChunk]);
 
-  // Handle end of speech recognition
-  useEffect(() => {
-    if (!isListening && transcript && appState === 'listening') {
-      handleSendQuery(transcript);
-    }
-  }, [isListening, transcript, appState]);
-
-  const handleToggleListening = useCallback(() => {
-    if (!isSupported) {
-      alert("Speech recognition requires Chrome or Edge. Use the text input instead.");
-      return;
-    }
-
-    if (appState === 'speaking') {
-      handleInterrupt();
-      return;
-    }
-
-    if (isListening) {
-      stopListening();
-    } else {
-      setAppState('listening');
-      startListening();
-    }
-  }, [isListening, appState, isSupported, startListening, stopListening]);
-
   const handleSendQuery = useCallback((query: string) => {
     if (!query.trim()) return;
     
@@ -206,6 +180,42 @@ function App() {
     
     setAppState('idle');
   }, [appState, stopListening, stopAudio, sendMessage, generationIdCounter]);
+
+  // When speech recognition stops (user finished speaking), auto-send the transcript
+  useEffect(() => {
+    if (!isListening && transcript && (appState === 'listening' || appState === 'idle')) {
+      handleSendQuery(transcript);
+    }
+    // If recognition stopped with no transcript, reset to idle
+    if (!isListening && !transcript && appState === 'listening') {
+      setAppState('idle');
+    }
+  }, [isListening, transcript]);
+
+  const handleToggleListening = useCallback(() => {
+    if (!isSupported) {
+      alert("Speech recognition requires Chrome or Edge. Use the text input instead.");
+      return;
+    }
+
+    // If speaking, interrupt the AI
+    if (appState === 'speaking') {
+      handleInterrupt();
+      return;
+    }
+
+    // If currently listening, stop and send what we have
+    if (isListening) {
+      stopListening();
+      return;
+    }
+
+    // If idle or any other state, start listening
+    if (appState === 'idle' || appState === 'listening') {
+      setAppState('listening');
+      startListening();
+    }
+  }, [isListening, appState, isSupported, startListening, stopListening, handleInterrupt]);
 
   return (
     <div className="app-container">
