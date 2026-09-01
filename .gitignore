@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+uvicorn.log
+
+# Evidence artifacts (generated, not committed)
+evidence_results.json
+
+# Build outputs
+frontend/dist/
+backend/*.wav
+backend/*.mp3
