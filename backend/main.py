@@ -315,3 +315,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 task.cancel()
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    logger.info(f"Starting DataForge on port {port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)
