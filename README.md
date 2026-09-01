@@ -1,6 +1,6 @@
 # DataForge — Voice-Native Real-Time Data Analyst
 
-> **Rime Hackathon Submission** | Team DataForge  
+> **Rime Hackathon Submission** | Team RuntimeTerror  
 > Hard Voice Problem: **Conversation Continuity During Tool Work**
 
 DataForge is a voice-first data exploration tool where users speak natural-language queries and receive **streaming spoken insights** via Rime TTS while interactive visualizations render simultaneously. The voice channel is essential — users explore data hands-free through conversation, with the assistant narrating trends, calling out anomalies, and confirming actions while their eyes stay on the charts.
