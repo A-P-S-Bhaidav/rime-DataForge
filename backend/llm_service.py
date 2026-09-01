@@ -1,5 +1,5 @@
 """
-LLM Service for DataForge — Google Gemini Integration
+LLM Service for DataForge — Google Gemini Integration (new SDK)
 Translates natural language queries into data analysis plans.
 """
 
@@ -8,7 +8,8 @@ import os
 import logging
 from typing import Dict, Any, List
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger("dataforge.llm")
 
@@ -50,16 +51,11 @@ Chart types: bar, line, area, pie
 
 
 class LLMService:
-    """Google Gemini LLM service for translating queries into analysis plans."""
+    """Google Gemini LLM service using the new google.genai SDK."""
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
-        if self.api_key:
-            genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            generation_config={"response_mime_type": "application/json"},
-        )
+        self.client = genai.Client(api_key=self.api_key)
 
     async def analyze_query(
         self,
@@ -69,9 +65,6 @@ class LLMService:
     ) -> Dict[str, Any]:
         """
         Analyze a user query and produce a structured analysis plan.
-        
-        Returns dict with: dataset, operations, chart_type, chart_config,
-        spoken_response, filler_phrase
         """
         datasets_str = json.dumps(available_datasets, indent=2)
         system = SYSTEM_PROMPT.format(datasets=datasets_str)
@@ -88,7 +81,13 @@ class LLMService:
         prompt = f"{system}\n{context_str}\n\nUser's current question: {user_query}\n"
 
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = await self.client.aio.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
             result = json.loads(response.text)
 
             # Validate required fields
@@ -97,7 +96,6 @@ class LLMService:
                 if field not in result:
                     raise ValueError(f"Missing field: {field}")
 
-            # Ensure operations is a list
             if "operations" not in result:
                 result["operations"] = []
 
@@ -112,7 +110,6 @@ class LLMService:
 
     def _fallback_response(self, query: str) -> Dict[str, Any]:
         """Produce a safe fallback response when LLM fails."""
-        # Try to guess dataset from query
         query_lower = query.lower()
         if any(w in query_lower for w in ["sale", "region", "product"]):
             dataset = "sales"
@@ -129,6 +126,6 @@ class LLMService:
             "operations": [],
             "chart_type": "bar",
             "chart_config": {"x": x, "y": y, "title": "Data Overview"},
-            "spoken_response": "I had trouble understanding that query. Here's an overview of the data to get started.",
+            "spoken_response": "I had trouble analyzing that. Here's an overview of the data to get started.",
             "filler_phrase": "Let me check on that.",
         }

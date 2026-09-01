@@ -21,9 +21,10 @@ export const ChatTranscript: React.FC<ChatTranscriptProps> = ({ messages, isSpea
 
   return (
     <div className="chat-container glass-card" style={{ height: '100%' }}>
+      <div className="chat-header">Conversation</div>
       <div className="messages-list" ref={scrollRef}>
         {messages.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: '40px' }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px', fontSize: '0.85rem' }}>
             <p>Your conversation will appear here.</p>
           </div>
         )}
@@ -34,12 +35,7 @@ export const ChatTranscript: React.FC<ChatTranscriptProps> = ({ messages, isSpea
               {msg.text}
               {msg.interrupted && <span className="interrupted-badge">Interrupted</span>}
             </div>
-            <div style={{ 
-              fontSize: '0.7rem', 
-              opacity: 0.7, 
-              marginTop: '4px',
-              textAlign: msg.type === 'user' ? 'right' : 'left'
-            }}>
+            <div className="message-time" style={{ textAlign: msg.type === 'user' ? 'right' : 'left' }}>
               {formatTime(msg.timestamp)}
             </div>
           </div>

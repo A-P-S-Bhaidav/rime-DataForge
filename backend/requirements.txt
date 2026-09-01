@@ -3,6 +3,5 @@ uvicorn[standard]==0.34.0
 websockets==14.1
 httpx==0.28.1
 pandas==2.2.3
-numpy==2.0.2
-google-generativeai==0.8.5
+google-genai>=2.21.0
 python-dotenv==1.0.1

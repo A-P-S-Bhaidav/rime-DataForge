@@ -10,50 +10,72 @@ import { DatasetPanel } from './components/DatasetPanel';
 import type { AppState, Message, ChartData, Dataset } from './types';
 import './styles/index.css';
 
-const MOCK_DATASETS: Dataset[] = [
+const DATASETS: Dataset[] = [
   {
-    id: 'sales_q3',
-    name: 'Global Sales Q3',
-    description: 'Quarterly sales performance across all regions with product category breakdown.',
-    rowCount: 125000,
-    columns: ['Region', 'Country', 'Product', 'Revenue', 'Date'],
-    icon: '📈'
+    id: 'sales',
+    name: 'Sales Performance',
+    description: 'Transactions by region, product, quarter, and sales rep.',
+    rowCount: 200,
+    columns: ['region', 'product', 'quarter', 'sales_rep', 'amount', 'units'],
   },
   {
-    id: 'user_growth',
-    name: 'User Growth Metrics',
-    description: 'Daily active users, retention rates, and acquisition channels.',
-    rowCount: 45000,
-    columns: ['Date', 'DAU', 'MAU', 'Channel', 'Retention'],
-    icon: '👥'
+    id: 'users',
+    name: 'User Analytics',
+    description: 'Daily active users, sessions, bounce rate, and page views.',
+    rowCount: 365,
+    columns: ['date', 'daily_active_users', 'sessions', 'bounce_rate', 'new_users', 'page_views'],
   },
   {
-    id: 'inventory',
-    name: 'Real-time Inventory',
-    description: 'Current stock levels, warehouse locations, and restock predictions.',
-    rowCount: 8500,
-    columns: ['SKU', 'Warehouse', 'Stock', 'Status', 'RestockDate'],
-    icon: '📦'
+    id: 'financials',
+    name: 'Financial Records',
+    description: 'Monthly revenue, expenses, profit by category.',
+    rowCount: 60,
+    columns: ['month', 'revenue', 'expenses', 'profit', 'category', 'headcount'],
   }
 ];
 
 const SUGGESTED_QUERIES = [
   "Sales by region",
   "Monthly revenue trend",
-  "Top products",
-  "User growth"
+  "Top selling products",
+  "User growth over time"
 ];
+
+/**
+ * Determine the WebSocket URL based on environment.
+ * In production (Vercel), use VITE_WS_URL env var.
+ * In dev, connect directly to the local backend.
+ */
+function getWsUrl(): string {
+  // Check for explicit env var first
+  const envUrl = import.meta.env.VITE_WS_URL;
+  if (envUrl) return envUrl;
+
+  // In production, derive from window.location
+  if (import.meta.env.PROD) {
+    const apiBase = import.meta.env.VITE_API_URL;
+    if (apiBase) {
+      const url = new URL(apiBase);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      url.pathname = '/ws';
+      return url.toString();
+    }
+  }
+
+  // Default: local dev backend
+  return 'ws://localhost:8000/ws';
+}
 
 function App() {
   const [appState, setAppState] = useState<AppState>('idle');
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentChart, setCurrentChart] = useState<ChartData | null>(null);
   const [generationIdCounter, setGenerationIdCounter] = useState(1);
-  const [activeDatasetId, setActiveDatasetId] = useState<string>(MOCK_DATASETS[0].id);
+  const [activeDatasetId, setActiveDatasetId] = useState<string>(DATASETS[0].id);
 
-  const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws';
+  const wsUrl = getWsUrl();
   const { sendMessage, lastMessage, connectionState } = useWebSocket(wsUrl);
-  const { isPlaying, playChunk, stop: stopAudio,} = useAudioPlayer();
+  const { isPlaying, playChunk, stop: stopAudio } = useAudioPlayer();
   const { transcript, interimTranscript, isListening, startListening, stopListening, isSupported } = useSpeechRecognition();
 
   // Handle incoming WebSocket messages
@@ -67,29 +89,29 @@ function App() {
       
       case 'transcript':
         setMessages(prev => {
-          const existingMsgIndex = prev.findIndex(m => m.generationId === lastMessage.generationId && m.type === (lastMessage.isFiller ? 'filler' : 'assistant'));
+          const existingIdx = prev.findIndex(
+            m => m.generationId === lastMessage.generationId && m.type === (lastMessage.isFiller ? 'filler' : 'assistant')
+          );
           
-          if (existingMsgIndex >= 0) {
-            const newMessages = [...prev];
-            newMessages[existingMsgIndex] = {
-              ...newMessages[existingMsgIndex],
-              text: lastMessage.text
-            };
-            return newMessages;
-          } else {
-            return [...prev, {
-              id: Math.random().toString(36).substring(7),
-              type: lastMessage.isFiller ? 'filler' : 'assistant',
-              text: lastMessage.text,
-              timestamp: new Date(),
-              generationId: lastMessage.generationId
-            }];
+          if (existingIdx >= 0) {
+            const updated = [...prev];
+            updated[existingIdx] = { ...updated[existingIdx], text: lastMessage.text };
+            return updated;
           }
+          return [...prev, {
+            id: crypto.randomUUID(),
+            type: lastMessage.isFiller ? 'filler' : 'assistant',
+            text: lastMessage.text,
+            timestamp: new Date(),
+            generationId: lastMessage.generationId
+          }];
         });
         break;
 
       case 'audio':
-        playChunk(lastMessage.data, lastMessage.generationId, lastMessage.isFinal);
+        if (lastMessage.data) {
+          playChunk(lastMessage.data, lastMessage.generationId, lastMessage.isFinal);
+        }
         break;
 
       case 'chart':
@@ -103,7 +125,7 @@ function App() {
 
       case 'error':
         setMessages(prev => [...prev, {
-          id: Math.random().toString(36).substring(7),
+          id: crypto.randomUUID(),
           type: 'error',
           text: lastMessage.message,
           timestamp: new Date(),
@@ -121,14 +143,7 @@ function App() {
     }
   }, [lastMessage, playChunk]);
 
-  // Sync Audio player state with App state
-  useEffect(() => {
-    if (isPlaying && appState !== 'speaking') {
-      // Audio might still be playing
-    }
-  }, [isPlaying, appState]);
-
-  // Handle end of speech
+  // Handle end of speech recognition
   useEffect(() => {
     if (!isListening && transcript && appState === 'listening') {
       handleSendQuery(transcript);
@@ -137,7 +152,7 @@ function App() {
 
   const handleToggleListening = useCallback(() => {
     if (!isSupported) {
-      alert("Speech recognition is not supported in this browser. Please use Chrome.");
+      alert("Speech recognition requires Chrome or Edge. Use the text input instead.");
       return;
     }
 
@@ -162,7 +177,7 @@ function App() {
     setGenerationIdCounter(prev => prev + 1);
     
     setMessages(prev => [...prev, {
-      id: Math.random().toString(36).substring(7),
+      id: crypto.randomUUID(),
       type: 'user',
       text: query,
       timestamp: new Date(),
@@ -185,7 +200,7 @@ function App() {
     if (appState === 'processing' || appState === 'speaking') {
       sendMessage({
         type: 'interrupt',
-        generationId: generationIdCounter - 1 // Interrupt the current generation
+        generationId: generationIdCounter - 1
       });
     }
     
@@ -199,7 +214,7 @@ function App() {
       <main className="main-content">
         <ChatTranscript messages={messages} isSpeaking={appState === 'speaking' || isPlaying} />
         
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', height: '100%', minHeight: 0 }}>
           <DataVisualization chart={currentChart} />
           
           <VoiceControl 
@@ -215,7 +230,7 @@ function App() {
         </div>
         
         <DatasetPanel 
-          datasets={MOCK_DATASETS}
+          datasets={DATASETS}
           activeDatasetId={activeDatasetId}
           onSelectDataset={setActiveDatasetId}
           onQuickQuery={handleSendQuery}

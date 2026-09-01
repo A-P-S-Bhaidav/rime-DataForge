@@ -32,5 +32,4 @@ export interface Dataset {
   description: string;
   rowCount: number;
   columns: string[];
-  icon: string;
 }

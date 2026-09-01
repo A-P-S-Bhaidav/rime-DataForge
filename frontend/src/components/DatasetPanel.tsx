@@ -8,6 +8,35 @@ interface DatasetPanelProps {
   onQuickQuery: (query: string) => void;
 }
 
+/* SVG icons per dataset ID — no emojis */
+const DatasetIcon: React.FC<{ id: string }> = ({ id }) => {
+  if (id === 'sales') {
+    return (
+      <div className="dataset-icon sales">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+      </div>
+    );
+  }
+  if (id === 'users') {
+    return (
+      <div className="dataset-icon users">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      </div>
+    );
+  }
+  return (
+    <div className="dataset-icon financials">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    </div>
+  );
+};
+
 export const DatasetPanel: React.FC<DatasetPanelProps> = ({ 
   datasets, 
   activeDatasetId, 
@@ -24,8 +53,8 @@ export const DatasetPanel: React.FC<DatasetPanelProps> = ({
           className={`dataset-card ${dataset.id === activeDatasetId ? 'active' : ''}`}
           onClick={() => onSelectDataset(dataset.id)}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-            <span style={{ fontSize: '1.5rem' }}>{dataset.icon}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+            <DatasetIcon id={dataset.id} />
             <div className="dataset-name">{dataset.name}</div>
           </div>
           
@@ -33,29 +62,19 @@ export const DatasetPanel: React.FC<DatasetPanelProps> = ({
           
           <div className="dataset-stats">
             <div>
-              <span style={{ opacity: 0.7 }}>Rows:</span> {dataset.rowCount.toLocaleString()}
+              <span style={{ opacity: 0.6 }}>Rows:</span> {dataset.rowCount.toLocaleString()}
             </div>
             <div>
-              <span style={{ opacity: 0.7 }}>Cols:</span> {dataset.columns.length}
+              <span style={{ opacity: 0.6 }}>Cols:</span> {dataset.columns.length}
             </div>
           </div>
           
           {dataset.id === activeDatasetId && (
-            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Quick Queries:</div>
+            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Quick queries</div>
               <div className="chips" style={{ justifyContent: 'flex-start' }}>
-                <div 
-                  className="chip" 
-                  onClick={(e) => { e.stopPropagation(); onQuickQuery(`Show me an overview of ${dataset.name}`); }}
-                >
-                  Overview
-                </div>
-                <div 
-                  className="chip" 
-                  onClick={(e) => { e.stopPropagation(); onQuickQuery(`What are the key trends?`); }}
-                >
-                  Key Trends
-                </div>
+                <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery(`Show me an overview of ${dataset.name}`); }}>Overview</div>
+                <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery(`What are the key trends in ${dataset.name}?`); }}>Trends</div>
               </div>
             </div>
           )}
