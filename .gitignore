@@ -11,7 +11,7 @@ build/
 # Environment files
 .env
 .env.local
-.env.production
+# Note: .env.production is committed (public URLs only, no secrets)
 
 # IDE
 .vscode/
