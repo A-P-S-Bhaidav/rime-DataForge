@@ -198,10 +198,10 @@ body::before {
   }
 
   /* On mobile, give chart a fixed height so it's actually visible */
-  .chart-container,
-  .data-viz {
-    min-height: 280px;
-    max-height: 350px;
+  .viz-container {
+    min-height: 350px !important;
+    max-height: 400px;
+    flex: none !important;
   }
 
   /* Voice control: keep compact */
@@ -586,6 +586,9 @@ body::before {
   padding: 20px;
   animation: scaleIn 0.4s ease-out;
   overflow: hidden;
+  flex: 1;
+  height: 100%;
+  min-height: 300px;
 }
 
 .chart-header {
@@ -802,5 +805,139 @@ body::before {
 
 .send-btn:hover {
   background: var(--secondary-accent);
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+}
+
+.send-btn:disabled {
+  background: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ─── Data Table ────────────────────────────────────── */
+.data-table-container {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(8px);
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.data-table tr:hover td {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.table-footer {
+  padding: 8px 12px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ─── Insights Panel ────────────────────────────────── */
+.insights-panel {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: rgba(99, 102, 241, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  border-radius: var(--radius-md);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.insights-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary-accent);
+  margin-bottom: 10px;
+}
+
+.insights-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.insight-item {
+  display: flex;
+  gap: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.insight-item strong {
+  color: var(--text-primary);
+}
+
+.insight-bullet {
+  color: var(--primary-accent);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ─── Insight Messages in Chat ──────────────────────── */
+.message.insight {
+  align-self: flex-start;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-bottom-left-radius: 4px;
+  max-width: 92%;
+}
+
+.insight-message-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.insight-line {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  padding-left: 12px;
+  position: relative;
+}
+
+.insight-line::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--primary-accent);
+}
+
+.insight-line strong {
+  color: var(--text-primary);
 }

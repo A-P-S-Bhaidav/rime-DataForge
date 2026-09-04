@@ -108,17 +108,49 @@ class DataEngine:
         self.dataset_descriptions["users"] = "Daily user analytics: DAU, sessions, bounce rate, page views"
         self.dataset_descriptions["financials"] = "Monthly financial data: revenue, expenses, profit by category"
 
+    def get_dataset_profile(self, dataset_name: str) -> dict:
+        """Return detailed profile of a dataset."""
+        df = self.datasets.get(dataset_name)
+        if df is None:
+            return {}
+        
+        columns_info = []
+        for col in df.columns:
+            dtype_str = "text"
+            if pd.api.types.is_numeric_dtype(df[col]):
+                dtype_str = "numeric"
+            elif pd.api.types.is_datetime64_any_dtype(df[col]):
+                dtype_str = "datetime"
+            elif pd.api.types.is_categorical_dtype(df[col]) or df[col].nunique() < 20:
+                dtype_str = "categorical"
+
+            unique_vals = df[col].dropna().unique()
+            col_info = {
+                "name": col,
+                "dtype": dtype_str,
+                "unique_count": len(unique_vals),
+                "sample_values": [str(v) for v in unique_vals[:5]]
+            }
+            if dtype_str == "numeric":
+                col_info["min"] = float(df[col].min()) if not pd.isna(df[col].min()) else None
+                col_info["max"] = float(df[col].max()) if not pd.isna(df[col].max()) else None
+                col_info["mean"] = float(df[col].mean()) if not pd.isna(df[col].mean()) else None
+            
+            columns_info.append(col_info)
+
+        return {
+            "name": dataset_name,
+            "description": self.dataset_descriptions.get(dataset_name, "Uploaded dataset"),
+            "rows": len(df),
+            "columns": columns_info,
+            "sample_rows": df.head(3).fillna("").to_dict(orient="records")
+        }
+
     def list_datasets(self) -> List[Dict[str, Any]]:
         """Return metadata about all available datasets."""
         metadata = []
         for name in self.datasets.keys():
-            df = self.datasets[name]
-            metadata.append({
-                "name": name,
-                "description": self.dataset_descriptions.get(name, "Uploaded dataset"),
-                "rows": len(df),
-                "columns": list(df.columns),
-            })
+            metadata.append(self.get_dataset_profile(name))
         return metadata
 
     def add_dataset(self, name: str, df: pd.DataFrame, description: str = "Uploaded dataset"):
@@ -186,6 +218,46 @@ class DataEngine:
                     ascending = params.get("ascending", False)
                     if col in df.columns:
                         df = df.sort_values(by=col, ascending=ascending)
+
+                elif op_type == "top_n":
+                    col = params.get("column", "")
+                    n = params.get("n", 10)
+                    ascending = params.get("ascending", False)
+                    if col in df.columns:
+                        df = df.sort_values(by=col, ascending=ascending).head(n)
+
+                elif op_type == "value_counts":
+                    col = params.get("column", "")
+                    if col in df.columns:
+                        df = df[col].value_counts().reset_index()
+                        df.columns = [col, 'count']
+
+                elif op_type == "describe":
+                    df = df.describe().reset_index()
+
+                elif op_type == "date_filter":
+                    col = params.get("column", "")
+                    start = params.get("start")
+                    end = params.get("end")
+                    if col in df.columns:
+                        df[col] = pd.to_datetime(df[col])
+                        if start:
+                            df = df[df[col] >= pd.to_datetime(start)]
+                        if end:
+                            df = df[df[col] <= pd.to_datetime(end)]
+                        df[col] = df[col].dt.strftime('%Y-%m-%d')
+
+                elif op_type == "multi_group":
+                    group_cols = params.get("group_cols", [])
+                    agg_col = params.get("agg_col", "")
+                    agg_func = params.get("agg_func", "sum")
+                    valid_cols = [c for c in group_cols if c in df.columns]
+                    if valid_cols and agg_col in df.columns:
+                        df = df.groupby(valid_cols, as_index=False)[agg_col].agg(agg_func)
+
+                elif op_type == "rename":
+                    mapping = params.get("mapping", {})
+                    df = df.rename(columns=mapping)
 
             except Exception as e:
                 logger.warning(f"Operation {op_type} failed: {e}")

@@ -91,8 +91,9 @@ function App() {
       
       case 'transcript':
         setMessages(prev => {
+          const msgType = lastMessage.isInsight ? 'insight' : (lastMessage.isFiller ? 'filler' : 'assistant');
           const existingIdx = prev.findIndex(
-            m => m.generationId === lastMessage.generationId && m.type === (lastMessage.isFiller ? 'filler' : 'assistant')
+            m => m.generationId === lastMessage.generationId && m.type === msgType
           );
           
           if (existingIdx >= 0) {
@@ -102,7 +103,7 @@ function App() {
           }
           return [...prev, {
             id: crypto.randomUUID(),
-            type: lastMessage.isFiller ? 'filler' : 'assistant',
+            type: msgType,
             text: lastMessage.text,
             timestamp: new Date(),
             generationId: lastMessage.generationId
@@ -118,10 +119,14 @@ function App() {
 
       case 'chart':
         setCurrentChart({
-          chartType: lastMessage.chartType,
+          chartType: lastMessage.chartType as ChartData['chartType'],
           data: lastMessage.data,
           title: lastMessage.title,
-          generationId: lastMessage.generationId
+          generationId: lastMessage.generationId,
+          responseType: lastMessage.responseType as ChartData['responseType'],
+          insights: lastMessage.insights,
+          tableData: lastMessage.tableData,
+          tableColumns: lastMessage.tableColumns,
         });
         break;
 

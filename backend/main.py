@@ -198,7 +198,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         try:
             # Get conversation context and available datasets
-            context = conv_state.get_context_for_llm()
+            context_data = conv_state.get_context_for_llm()
             datasets = data_engine.list_datasets()
 
             # --- STEP 1: Fire filler speech ASAP (< 500ms target) ---
@@ -207,7 +207,7 @@ async def websocket_endpoint(websocket: WebSocket):
             )
             # --- STEP 2: Fire LLM analysis concurrently ---
             llm_task = asyncio.create_task(
-                llm_service.analyze_query(text, context, datasets)
+                llm_service.analyze_query(text, context_data, datasets)
             )
 
             # Wait for filler (should be fast for short phrases)
@@ -242,6 +242,8 @@ async def websocket_endpoint(websocket: WebSocket):
             if cancel_event.is_set():
                 logger.info(f"[gen={gen_id}] Cancelled after LLM")
                 return
+            
+            conv_state.store_query_plan(llm_result)
 
             t_llm = time.monotonic()
             logger.info(f"[gen={gen_id}] LLM latency: {(t_llm - t_start) * 1000:.0f}ms")
@@ -254,10 +256,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # --- STEP 5: Send chart data ---
             if "data" in query_result and query_result["data"]:
-                chart_config = llm_result.get("chart_config", {})
+                chart_config = llm_result.get("chart_config") or {}
                 chart_payload = {
                     "type": "chart",
                     "chartType": llm_result.get("chart_type", "bar"),
+                    "responseType": llm_result.get("response_type", "chart_and_insight"),
+                    "insights": llm_result.get("detailed_insights", ""),
+                    "tableData": query_result.get("data", []),
+                    "tableColumns": query_result.get("columns", []),
                     "data": query_result["data"],
                     "title": chart_config.get("title", "Analysis Result"),
                     "xKey": chart_config.get("x", ""),
@@ -265,6 +271,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     "generationId": gen_id
                 }
                 await send_json_safe(chart_payload)
+
+            insights = llm_result.get("detailed_insights", "")
+            if insights:
+                await send_json_safe({
+                    "type": "transcript",
+                    "text": insights,
+                    "generationId": gen_id,
+                    "isFiller": False,
+                    "isInsight": True
+                })
 
             # --- STEP 6: Stream main spoken response via Rime TTS ---
             spoken_text = llm_result.get("spoken_response", "Here are the results.")

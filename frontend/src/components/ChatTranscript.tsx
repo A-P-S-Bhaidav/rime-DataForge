@@ -32,8 +32,24 @@ export const ChatTranscript: React.FC<ChatTranscriptProps> = ({ messages, isSpea
         {messages.map((msg) => (
           <div key={msg.id} className={`message ${msg.type} ${msg.interrupted ? 'interrupted' : ''}`}>
             <div>
-              {msg.text}
-              {msg.interrupted && <span className="interrupted-badge">Interrupted</span>}
+              {msg.type === 'insight' ? (
+                <div className="insight-message-content">
+                  {msg.text.split('\n').filter(l => l.trim()).map((line, i) => {
+                    const cleaned = line.replace(/^[-•*]\s*/, '').trim();
+                    if (!cleaned) return null;
+                    return (
+                      <div key={i} className="insight-line">
+                        <span dangerouslySetInnerHTML={{ __html: cleaned.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <>
+                  {msg.text}
+                  {msg.interrupted && <span className="interrupted-badge">Interrupted</span>}
+                </>
+              )}
             </div>
             <div className="message-time" style={{ textAlign: msg.type === 'user' ? 'right' : 'left' }}>
               {formatTime(msg.timestamp)}

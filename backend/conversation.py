@@ -23,6 +23,7 @@ class ConversationState:
         self.current_generation_id: int = 0
         self.active_tasks: Dict[int, asyncio.Event] = {}
         self.heard_context: List[Dict[str, Any]] = []
+        self.last_query_plan: dict | None = None
 
     def new_query(self, text: str) -> int:
         """
@@ -84,15 +85,23 @@ class ConversationState:
             return True  # Unknown generation = treat as cancelled
         return evt.is_set()
 
-    def get_context_for_llm(self) -> List[Dict[str, str]]:
+    def store_query_plan(self, plan: dict):
+        """Store the last executed query plan for context in follow-ups."""
+        self.last_query_plan = plan
+
+    def get_context_for_llm(self) -> Dict[str, Any]:
         """
         Return conversation context based on what the user actually heard.
         This ensures follow-up queries reference the correct state.
         """
-        return [
+        messages = [
             {"role": m["role"], "content": m["content"]}
             for m in self.heard_context[-10:]  # Last 10 messages
         ]
+        return {
+            "messages": messages,
+            "last_query_plan": self.last_query_plan
+        }
 
     def mark_heard(self, generation_id: int):
         """Mark all messages for a generation as heard."""
