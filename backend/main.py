@@ -57,6 +57,42 @@ data_engine = DataEngine()
 rime_api_key = os.getenv("RIME_API_KEY", "")
 gemini_api_key = os.getenv("GEMINI_API_KEY", "")
 
+@app.on_event("startup")
+async def verify_rime_catalog():
+    """
+    Rime Preflight Check:
+    Validates our configured model and voice against the live catalog.
+    Rules require using the current catalog rather than a stale speaker list.
+    """
+    if not rime_api_key:
+        return
+        
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("https://users.rime.ai/data/voices/all-v2.json", timeout=10.0)
+            if resp.status_code == 200:
+                catalog = resp.json()
+                model = RimeTTS.MODEL_ID
+                speaker = RimeTTS.SPEAKER
+                
+                # The catalog structure is usually { model: { language: [speakers] } }
+                # We want to ensure 'coda' is supported and 'celeste' is in it.
+                if model in catalog:
+                    # Search across all languages for the speaker
+                    found = any(speaker in (speakers if isinstance(speakers, list) else []) for speakers in catalog[model].values())
+                    # Alternatively, if it's a simple list in 'eng'
+                    is_in_eng = "eng" in catalog[model] and isinstance(catalog[model]["eng"], list) and speaker in catalog[model]["eng"]
+                    
+                    if is_in_eng or found:
+                        logger.info(f"✅ Rime Preflight Check Passed: Model '{model}' and Voice '{speaker}' are active in the live catalog.")
+                    else:
+                        logger.warning(f"⚠️ Rime Preflight Warning: Voice '{speaker}' not found for model '{model}' in live catalog.")
+                else:
+                    logger.warning(f"⚠️ Rime Preflight Warning: Model '{model}' not found in live catalog.")
+    except Exception as e:
+        logger.error(f"Failed to run Rime catalog preflight check: {e}")
+
 class MetricsCollector:
     def __init__(self):
         self.queries = deque(maxlen=100)
