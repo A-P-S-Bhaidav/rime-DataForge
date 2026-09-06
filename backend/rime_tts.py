@@ -76,8 +76,16 @@ class RimeTTS:
     MODEL_ID = "coda"
     SPEAKER = "celeste"
 
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, region: str = None):
         self.api_key = api_key or os.getenv("RIME_API_KEY", "")
+        # Route requests to the Rime region closest to application for lowest latency
+        # See: https://docs.rime.ai/docs/regional-endpoints
+        self.region = region or os.getenv("RIME_REGION", "west").lower()
+        if self.region == "east":
+            self.endpoint = "https://users-east.rime.ai/v1/rime-tts"
+        else:
+            self.endpoint = "https://users.rime.ai/v1/rime-tts" # Default (us-west-2)
+            
         self.active_generation_id: Optional[int] = None
         self.last_filler_text: str = ""
         self._client: Optional[httpx.AsyncClient] = None
@@ -123,9 +131,9 @@ class RimeTTS:
         try:
             client = await self._get_client()
             response = await client.post(
-                self.RIME_ENDPOINT,
+                self.endpoint,
                 headers=self._headers(),
-                json=self._body(filler_text, speed=1.05),
+                json=self._body(filler_text, speed=1.1),
             )
             response.raise_for_status()
             return base64.b64encode(response.content).decode("utf-8")
