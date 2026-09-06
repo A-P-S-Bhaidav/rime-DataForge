@@ -65,7 +65,7 @@ You are in a conversation. Check the `Previous query plan` section carefully.
 - value_counts: {{"type":"value_counts","params":{{"column":"col"}}}}
 - date_filter: {{"type":"date_filter","params":{{"column":"date","start":"2024-01-01","end":"2024-06-30"}}}}
 - multi_group: {{"type":"multi_group","params":{{"group_cols":["col1","col2"],"agg_col":"val","agg_func":"sum"}}}}
-- Operators: ==, >, <, >=, <=, !=, contains
+- Operators: ==, >, <, >=, <=, !=, contains, in, not_in (for 'in' and 'not_in', 'value' MUST be an array of strings/numbers)
 - Aggregation functions: sum, mean, count, min, max
 
 ## You MUST return ONLY a JSON object with these fields:

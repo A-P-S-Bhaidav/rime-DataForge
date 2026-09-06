@@ -205,6 +205,10 @@ class DataEngine:
                             df = df[df[col] != val]
                         elif operator == "contains":
                             df = df[df[col].astype(str).str.contains(str(val), case=False)]
+                        elif operator == "in":
+                            df = df[df[col].isin(val if isinstance(val, list) else [val])]
+                        elif operator == "not_in":
+                            df = df[~df[col].isin(val if isinstance(val, list) else [val])]
 
                 elif op_type == "groupby_agg":
                     group_col = params.get("group_col", "")
