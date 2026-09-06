@@ -19,6 +19,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   const recognitionRef = useRef<any>(null);
   const isListeningRef = useRef(false);
   const shouldRestart = useRef(false);
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isSupported = typeof window !== 'undefined' && 
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
@@ -54,6 +55,17 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
       if (interimText) {
         setInterimTranscript(interimText);
       }
+      
+      // Reset silence timeout on any speech activity
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+      }
+      silenceTimeoutRef.current = setTimeout(() => {
+        if (isListeningRef.current) {
+          shouldRestart.current = false;
+          try { rec.stop(); } catch (_) {}
+        }
+      }, 2500); // Stop automatically after 2.5s of silence
     };
 
     rec.onerror = (event: any) => {
@@ -102,6 +114,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     return () => {
       shouldRestart.current = false;
       isListeningRef.current = false;
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
       try { rec.stop(); } catch (_) {}
     };
   }, [isSupported]);
@@ -116,6 +129,15 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     shouldRestart.current = true;
     isListeningRef.current = true;
     setIsListening(true);
+    
+    // Initial timeout in case they start listening but say nothing
+    if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+    silenceTimeoutRef.current = setTimeout(() => {
+      if (isListeningRef.current) {
+        shouldRestart.current = false;
+        try { recognitionRef.current?.stop(); } catch (_) {}
+      }
+    }, 5000); // 5s initial timeout
 
     try {
       recognitionRef.current.start();
@@ -140,6 +162,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     shouldRestart.current = false;
     isListeningRef.current = false;
     setIsListening(false);
+    if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
     try {
       recognitionRef.current?.stop();
     } catch (_) {}
