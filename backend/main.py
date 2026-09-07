@@ -147,15 +147,44 @@ async def health_check():
 
 @app.get("/debug-llm")
 async def debug_llm():
-    """Debug endpoint to test LLM directly."""
+    """Debug endpoint to test LLM directly — shows which path is used."""
+    import traceback
+    debug_info = {
+        "gemini_key_set": bool(gemini_api_key),
+        "gemini_key_prefix": gemini_api_key[:8] + "..." if gemini_api_key else "none",
+        "groq_key_set": bool(os.getenv("GROQ_API_KEY")),
+    }
+    
+    # Test Gemini directly
+    try:
+        from google import genai
+        from google.genai import types as genai_types
+        client = genai.Client(api_key=gemini_api_key)
+        response = await client.aio.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[genai_types.Content(role="user", parts=[genai_types.Part.from_text(text='Say "hello" in JSON: {"msg":"hello"}')])],
+            config=genai_types.GenerateContentConfig(temperature=0.1, max_output_tokens=50),
+        )
+        debug_info["gemini_direct_test"] = "SUCCESS: " + response.text.strip()[:100]
+    except Exception as e:
+        debug_info["gemini_direct_test"] = "FAILED: " + str(e)[:300]
+    
+    # Test full pipeline
     try:
         llm = LLMService(api_key=gemini_api_key)
         datasets = data_engine.list_datasets()
         result = await llm.analyze_query("Show me total sales by region", [], datasets)
-        return {"status": "ok", "result": result}
+        debug_info["pipeline_result"] = result
+        # Check if it's a fallback response
+        if result.get("filler_phrase") == "Pulling up regional sales.":
+            debug_info["pipeline_source"] = "HARDCODED_FALLBACK (no LLM ran)"
+        else:
+            debug_info["pipeline_source"] = "LLM (Gemini or Groq)"
     except Exception as e:
-        import traceback
-        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+        debug_info["pipeline_error"] = str(e)
+        debug_info["pipeline_traceback"] = traceback.format_exc()
+    
+    return debug_info
 
 
 @app.get("/api/datasets")

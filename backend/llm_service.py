@@ -302,13 +302,12 @@ class LLMService:
             return result
 
         except Exception as e:
-            error_str = str(e).lower()
-            if "429" in error_str or "quota" in error_str or "exhausted" in error_str:
-                logger.warning("Gemini quota error detected. Switching to fallback LLM.")
+            logger.warning(f"Gemini failed: {e}. Trying fallback LLM...")
+            try:
                 return await self._fallback_analyze_query(user_query, context, available_datasets)
-            
-            logger.error(f"LLM analysis failed: {e}", exc_info=True)
-            return self._fallback_response(user_query)
+            except Exception as fallback_err:
+                logger.error(f"Fallback LLM also failed: {fallback_err}")
+                return self._fallback_response(user_query)
 
     async def _fallback_analyze_query(self, user_query: str, context: dict, available_datasets: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Fallback to Groq API (Llama-3-70B) if Gemini hits rate limits."""
