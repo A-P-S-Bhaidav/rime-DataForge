@@ -304,7 +304,7 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama-3.1-8b-instant",
+                    "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_prompt}
