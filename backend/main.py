@@ -274,7 +274,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     "type": "audio",
                     "data": filler_audio,
                     "generationId": gen_id,
-                    "isFinal": False
+                    "isFinal": False,
+                    "isFiller": True
                 })
                 await send_json_safe({
                     "type": "status",
