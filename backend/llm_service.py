@@ -268,6 +268,15 @@ class LLMService:
         user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid JSON object, nothing else."
 
         try:
+            # If GROQ_API_KEY is present, we prioritize Groq (since user explicitly added it to Railway)
+            groq_api_key = os.getenv("GROQ_API_KEY")
+            if groq_api_key:
+                try:
+                    logger.info("GROQ_API_KEY detected, using Groq as primary LLM...")
+                    return await self._fallback_analyze_query(user_query, context, available_datasets)
+                except Exception as e:
+                    logger.warning(f"Groq failed: {e}. Falling back to Gemini...")
+            
             response = await self.client.aio.models.generate_content(
                 model="gemini-3.6-flash",
                 contents=[
@@ -304,6 +313,9 @@ class LLMService:
         except Exception as e:
             logger.warning(f"Gemini failed: {e}. Trying fallback LLM...")
             try:
+                # If we haven't already tried Groq (e.g. because groq_api_key was missing but might be set differently), try now
+                if not os.getenv("GROQ_API_KEY"):
+                    return self._fallback_response(user_query)
                 return await self._fallback_analyze_query(user_query, context, available_datasets)
             except Exception as fallback_err:
                 logger.error(f"Fallback LLM also failed: {fallback_err}")
@@ -433,14 +445,28 @@ class LLMService:
                 "filler_phrase": "Checking quarterly numbers.",
             }
         elif any(w in query_lower for w in ["sale", "region", "north", "south", "east", "west"]):
+            # Add a basic filter if a specific region is mentioned
+            region_val = next((r for r in ["North", "South", "East", "West"] if r.lower() in query_lower), None)
+            operations = []
+            if region_val:
+                operations.append({"type": "filter", "params": {"column": "region", "value": region_val, "operator": "=="}})
+                # Group by product if filtered to 1 region (Drill-down rule)
+                operations.append({"type": "groupby_agg", "params": {"group_col": "product", "agg_col": "amount", "agg_func": "sum"}})
+                chart_config = {"x": "product", "y": "amount", "title": f"Sales in {region_val} Region"}
+                insights = f"- **{region_val} Region Sales** broken down by product.\n- This data is isolated to transactions from the {region_val} region."
+            else:
+                operations.append({"type": "groupby_agg", "params": {"group_col": "region", "agg_col": "amount", "agg_func": "sum"}})
+                chart_config = {"x": "region", "y": "amount", "title": "Sales by Region"}
+                insights = "- **Regional sales comparison** across North, South, East, and West.\n- Each region has roughly 50 transactions in the dataset.\n- Differences in total amount reflect product mix and average deal size.\n- Try asking 'show me North only' to drill down into a specific region."
+                
             return {
                 "dataset": "sales",
-                "operations": [{"type": "groupby_agg", "params": {"group_col": "region", "agg_col": "amount", "agg_func": "sum"}}],
+                "operations": operations,
                 "response_type": "chart_and_insight",
-                "detailed_insights": "- **Regional sales comparison** across North, South, East, and West.\n- Each region has roughly 50 transactions in the dataset.\n- Differences in total amount reflect product mix and average deal size.\n- Try asking 'show me North only' to drill down into a specific region.",
+                "detailed_insights": insights,
                 "chart_type": "bar",
-                "chart_config": {"x": "region", "y": "amount", "title": "Sales by Region"},
-                "spoken_response": "Here's the total sales across all four regions. The chart compares performance side by side.",
+                "chart_config": chart_config,
+                "spoken_response": "Here's the sales data you requested. The chart compares performance.",
                 "filler_phrase": "Pulling up regional sales.",
             }
         elif any(w in query_lower for w in ["dau", "daily active", "active user", "user growth", "user trend"]):
