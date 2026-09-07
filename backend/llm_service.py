@@ -213,7 +213,7 @@ You are in a conversation. Check the `Previous query plan` section carefully.
 - Operators: ==, >, <, >=, <=, !=, contains, in, not_in (for 'in' and 'not_in', 'value' MUST be an array)
 - Aggregation functions: sum, mean, count, min, max
 
-## You MUST return ONLY a JSON object with these fields:
+## You MUST return ONLY a valid json object with these fields:
 - dataset: string (dataset ID — "sales", "users", or "financials")
 - operations: array of operation objects (can be empty for raw data)
 - response_type: "chart" | "table" | "insight" | "chart_and_insight"
@@ -269,19 +269,25 @@ class LLMService:
                 context_str += f"\n## Previous query plan (the last chart/analysis shown to the user):\n{json.dumps(plan_summary, indent=2)}\n"
                 context_str += "\nIMPORTANT: If the user's new query is a follow-up (filter, drill-down, comparison), you MUST build upon the previous plan's dataset and operations. Add/modify filters or groupings as needed.\n"
 
-        user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid JSON object, nothing else."
+        user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid json object, nothing else."
 
         try:
             return await self._primary_analyze_query(user_prompt, system, context_str)
         except Exception as e:
-            logger.warning(f"Groq failed: {e}. Trying fallback LLM...")
+            groq_error = str(e)
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                groq_error += f"\nGroq Response Details: {e.response.text}"
+            logger.warning(f"Groq failed: {groq_error}. Trying fallback LLM...")
             try:
                 return await self._fallback_analyze_query(user_prompt, system, context_str)
             except Exception as fallback_err:
-                logger.error(f"Fallback LLM also failed: {fallback_err}")
+                gemini_error = str(fallback_err)
+                if hasattr(fallback_err, 'response') and hasattr(fallback_err.response, 'text'):
+                    gemini_error += f"\nGemini Response Details: {fallback_err.response.text}"
+                logger.error(f"Fallback LLM also failed: {gemini_error}")
                 fallback_res = self._fallback_response(user_query)
                 # Surface the error to the user in the UI
-                error_msg = f"**SYSTEM WARNING:** LLM Analysis failed and fell back to generic responses.\n- **Groq Error:** {str(e)}\n- **Gemini Error:** {str(fallback_err)}\n\n---\n"
+                error_msg = f"**SYSTEM WARNING:** LLM Analysis failed and fell back to generic responses.\n- **Groq Error:** {groq_error}\n- **Gemini Error:** {gemini_error}\n\n---\n"
                 fallback_res["detailed_insights"] = error_msg + fallback_res.get("detailed_insights", "")
                 return fallback_res
 
@@ -298,7 +304,7 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama-3.1-70b-versatile",
+                    "model": "llama3-70b-8192",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_prompt}
