@@ -279,7 +279,11 @@ class LLMService:
                 return await self._fallback_analyze_query(user_prompt, system, context_str)
             except Exception as fallback_err:
                 logger.error(f"Fallback LLM also failed: {fallback_err}")
-                return self._fallback_response(user_query)
+                fallback_res = self._fallback_response(user_query)
+                # Surface the error to the user in the UI
+                error_msg = f"**SYSTEM WARNING:** LLM Analysis failed and fell back to generic responses.\n- **Groq Error:** {str(e)}\n- **Gemini Error:** {str(fallback_err)}\n\n---\n"
+                fallback_res["detailed_insights"] = error_msg + fallback_res.get("detailed_insights", "")
+                return fallback_res
 
     async def _primary_analyze_query(self, user_prompt: str, system: str, context_str: str) -> Dict[str, Any]:
         """Primary LLM using Groq API (Llama-3-70B)."""
@@ -294,7 +298,7 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama3-70b-8192",
+                    "model": "llama-3.1-70b-versatile",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_prompt}
@@ -330,7 +334,7 @@ class LLMService:
             raise ValueError("No GEMINI_API_KEY found for fallback.")
 
         response = await self.gemini_client.aio.models.generate_content(
-            model="gemini-3.6-flash",
+            model="gemini-1.5-flash",
             contents=[
                 types.Content(role="user", parts=[
                     types.Part.from_text(text=system + "\n\n" + user_prompt)
