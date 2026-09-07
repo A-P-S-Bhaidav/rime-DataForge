@@ -226,11 +226,15 @@ You are in a conversation. Check the `Previous query plan` section carefully.
 
 
 class LLMService:
-    """Google Gemini LLM service."""
+    """LLM service prioritizing Groq with Gemini fallback."""
 
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
-        self.client = genai.Client(api_key=self.api_key)
+        self.gemini_api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "")
+        if self.gemini_api_key:
+            self.gemini_client = genai.Client(api_key=self.gemini_api_key)
+        else:
+            self.gemini_client = None
 
     async def analyze_query(
         self,
@@ -268,40 +272,50 @@ class LLMService:
         user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid JSON object, nothing else."
 
         try:
-            # If GROQ_API_KEY is present, we prioritize Groq (since user explicitly added it to Railway)
-            groq_api_key = os.getenv("GROQ_API_KEY")
-            if groq_api_key:
-                try:
-                    logger.info("GROQ_API_KEY detected, using Groq as primary LLM...")
-                    return await self._fallback_analyze_query(user_query, context, available_datasets)
-                except Exception as e:
-                    logger.warning(f"Groq failed: {e}. Falling back to Gemini...")
-            
-            response = await self.client.aio.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=[
-                    types.Content(role="user", parts=[
-                        types.Part.from_text(text=system + "\n\n" + user_prompt)
-                    ])
-                ],
-                config=types.GenerateContentConfig(
-                    temperature=0.2,
-                    max_output_tokens=2048,
-                ),
+            return await self._primary_analyze_query(user_prompt, system, context_str)
+        except Exception as e:
+            logger.warning(f"Groq failed: {e}. Trying fallback LLM...")
+            try:
+                return await self._fallback_analyze_query(user_prompt, system, context_str)
+            except Exception as fallback_err:
+                logger.error(f"Fallback LLM also failed: {fallback_err}")
+                return self._fallback_response(user_query)
+
+    async def _primary_analyze_query(self, user_prompt: str, system: str, context_str: str) -> Dict[str, Any]:
+        """Primary LLM using Groq API (Llama-3-70B)."""
+        if not self.groq_api_key:
+            raise ValueError("No GROQ_API_KEY found.")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama3-70b-8192",
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.2,
+                    "response_format": {"type": "json_object"}
+                },
+                timeout=15.0
             )
-
-            raw_text = response.text.strip()
-            logger.info(f"LLM raw response: {raw_text[:200]}")
-
-            # Extract JSON from response (handle markdown code blocks)
+            response.raise_for_status()
+            result_json = response.json()
+            raw_text = result_json["choices"][0]["message"]["content"]
+            
+            logger.info(f"Primary LLM (Groq) raw response: {raw_text[:200]}")
             result = self._extract_json(raw_text)
 
-            # Validate required fields
             required = ["dataset", "spoken_response"]
             for field in required:
                 if field not in result:
-                    raise ValueError(f"Missing required field: {field}")
-
+                    result[field] = ""
+            
             # Add defaults for optional/new fields
             result["response_type"] = result.get("response_type", "chart_and_insight")
             result["detailed_insights"] = result.get("detailed_insights", "")
@@ -310,83 +324,40 @@ class LLMService:
                 
             return result
 
-        except Exception as e:
-            logger.warning(f"Gemini failed: {e}. Trying fallback LLM...")
-            try:
-                # If we haven't already tried Groq (e.g. because groq_api_key was missing but might be set differently), try now
-                if not os.getenv("GROQ_API_KEY"):
-                    return self._fallback_response(user_query)
-                return await self._fallback_analyze_query(user_query, context, available_datasets)
-            except Exception as fallback_err:
-                logger.error(f"Fallback LLM also failed: {fallback_err}")
-                return self._fallback_response(user_query)
+    async def _fallback_analyze_query(self, user_prompt: str, system: str, context_str: str) -> Dict[str, Any]:
+        """Fallback to Gemini if Groq hits rate limits or fails."""
+        if not self.gemini_client:
+            raise ValueError("No GEMINI_API_KEY found for fallback.")
 
-    async def _fallback_analyze_query(self, user_query: str, context: dict, available_datasets: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Fallback to Groq API (Llama-3-70B) if Gemini hits rate limits."""
-        groq_api_key = os.getenv("GROQ_API_KEY")
-        if not groq_api_key:
-            logger.error("No GROQ_API_KEY found for fallback.")
-            return self._fallback_response(user_query)
-        datasets_str = json.dumps(available_datasets, indent=2)
-        system = SYSTEM_PROMPT.format(datasets=datasets_str)
-        context_str = ""
-        if context:
-            messages = context.get("messages", [])
-            if messages:
-                context_str += "\n## Recent conversation (what the user heard so far):\n"
-                for msg in messages[-6:]:
-                    role = msg.get("role", "user")
-                    content = msg.get("content", "")
-                    context_str += f"- {role}: {content}\n"
+        response = await self.gemini_client.aio.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=[
+                types.Content(role="user", parts=[
+                    types.Part.from_text(text=system + "\n\n" + user_prompt)
+                ])
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=2048,
+            ),
+        )
+
+        raw_text = response.text.strip()
+        logger.info(f"Fallback LLM (Gemini) raw response: {raw_text[:200]}")
+
+        result = self._extract_json(raw_text)
+
+        required = ["dataset", "spoken_response"]
+        for field in required:
+            if field not in result:
+                raise ValueError(f"Missing required field: {field}")
+
+        result["response_type"] = result.get("response_type", "chart_and_insight")
+        result["detailed_insights"] = result.get("detailed_insights", "")
+        if "operations" not in result:
+            result["operations"] = []
             
-            last_plan = context.get("last_query_plan")
-            if last_plan:
-                plan_summary = {
-                    "dataset": last_plan.get("dataset"),
-                    "operations": last_plan.get("operations", []),
-                    "chart_type": last_plan.get("chart_type"),
-                    "chart_config": last_plan.get("chart_config"),
-                }
-                context_str += f"\n## Previous query plan (the last chart/analysis shown to the user):\n{json.dumps(plan_summary, indent=2)}\n"
-                context_str += "\nIMPORTANT: If the user's new query is a follow-up (filter, drill-down, comparison), you MUST build upon the previous plan's dataset and operations.\n"
-
-        user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid JSON object, nothing else."
-
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {groq_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": "llama3-70b-8192",
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        "temperature": 0.3,
-                        "response_format": {"type": "json_object"}
-                    },
-                    timeout=15.0
-                )
-                response.raise_for_status()
-                result_json = response.json()
-                raw_text = result_json["choices"][0]["message"]["content"]
-                
-                logger.info(f"Fallback LLM raw response: {raw_text[:200]}")
-                result = self._extract_json(raw_text)
-
-                required = ["dataset", "spoken_response"]
-                for field in required:
-                    if field not in result:
-                        result[field] = ""
-                
-                return result
-        except Exception as e:
-            logger.error(f"Fallback LLM failed: {e}")
-            return self._fallback_response(user_query)
+        return result
 
     def _extract_json(self, text: str) -> dict:
         """Extract JSON from LLM response, handling markdown code blocks."""
@@ -445,28 +416,14 @@ class LLMService:
                 "filler_phrase": "Checking quarterly numbers.",
             }
         elif any(w in query_lower for w in ["sale", "region", "north", "south", "east", "west"]):
-            # Add a basic filter if a specific region is mentioned
-            region_val = next((r for r in ["North", "South", "East", "West"] if r.lower() in query_lower), None)
-            operations = []
-            if region_val:
-                operations.append({"type": "filter", "params": {"column": "region", "value": region_val, "operator": "=="}})
-                # Group by product if filtered to 1 region (Drill-down rule)
-                operations.append({"type": "groupby_agg", "params": {"group_col": "product", "agg_col": "amount", "agg_func": "sum"}})
-                chart_config = {"x": "product", "y": "amount", "title": f"Sales in {region_val} Region"}
-                insights = f"- **{region_val} Region Sales** broken down by product.\n- This data is isolated to transactions from the {region_val} region."
-            else:
-                operations.append({"type": "groupby_agg", "params": {"group_col": "region", "agg_col": "amount", "agg_func": "sum"}})
-                chart_config = {"x": "region", "y": "amount", "title": "Sales by Region"}
-                insights = "- **Regional sales comparison** across North, South, East, and West.\n- Each region has roughly 50 transactions in the dataset.\n- Differences in total amount reflect product mix and average deal size.\n- Try asking 'show me North only' to drill down into a specific region."
-                
             return {
                 "dataset": "sales",
-                "operations": operations,
+                "operations": [{"type": "groupby_agg", "params": {"group_col": "region", "agg_col": "amount", "agg_func": "sum"}}],
                 "response_type": "chart_and_insight",
-                "detailed_insights": insights,
+                "detailed_insights": "- **Regional sales comparison** across North, South, East, and West.\n- Each region has roughly 50 transactions in the dataset.\n- Differences in total amount reflect product mix and average deal size.\n- Try asking 'show me North only' to drill down into a specific region.",
                 "chart_type": "bar",
-                "chart_config": chart_config,
-                "spoken_response": "Here's the sales data you requested. The chart compares performance.",
+                "chart_config": {"x": "region", "y": "amount", "title": "Sales by Region"},
+                "spoken_response": "Here's the total sales across all four regions. The chart compares performance side by side.",
                 "filler_phrase": "Pulling up regional sales.",
             }
         elif any(w in query_lower for w in ["dau", "daily active", "active user", "user growth", "user trend"]):

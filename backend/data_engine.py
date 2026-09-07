@@ -172,14 +172,8 @@ class DataEngine:
         operations = query_plan.get("operations", [])
 
         if dataset_name not in self.datasets:
-            dataset_lower = dataset_name.lower()
-            if "user" in dataset_lower:
-                dataset_name = "users"
-            elif "financ" in dataset_lower:
-                dataset_name = "financials"
-            else:
-                logger.warning(f"Dataset '{dataset_name}' not found, falling back to 'sales'")
-                dataset_name = "sales"
+            logger.warning(f"Dataset '{dataset_name}' not found, falling back to 'sales'")
+            dataset_name = "sales"
 
         df = self.datasets[dataset_name].copy()
 
@@ -189,34 +183,14 @@ class DataEngine:
                 return {"data": [], "columns": [], "cancelled": True}
 
             op_type = op.get("type", "")
-            # Fallback to op itself if params dict is missing (LLMs often flatten JSON)
-            params = op.get("params") if isinstance(op.get("params"), dict) else op
+            params = op.get("params", {})
 
             try:
                 if op_type == "filter":
                     col = params.get("column", "")
                     val = params.get("value")
                     operator = params.get("operator", "==")
-                    
-                    # Fuzzy match column name
-                    if col and col not in df.columns:
-                        col_lower = col.lower()
-                        for c in df.columns:
-                            if c.lower() == col_lower:
-                                col = c
-                                break
-                    
                     if col in df.columns and val is not None:
-                        # Fix case-sensitivity for text values
-                        if isinstance(val, str) and df[col].dtype == object:
-                            # Try to match case if exact match fails
-                            unique_vals = df[col].unique()
-                            val_lower = val.lower()
-                            for uv in unique_vals:
-                                if str(uv).lower() == val_lower:
-                                    val = uv
-                                    break
-                                    
                         if operator == "==":
                             df = df[df[col] == val]
                         elif operator == ">":
@@ -240,13 +214,6 @@ class DataEngine:
                     group_col = params.get("group_col", "")
                     agg_col = params.get("agg_col", "")
                     agg_func = params.get("agg_func", "sum")
-                    
-                    # Fuzzy match columns
-                    if group_col and group_col not in df.columns:
-                        group_col = next((c for c in df.columns if c.lower() == group_col.lower()), group_col)
-                    if agg_col and agg_col not in df.columns:
-                        agg_col = next((c for c in df.columns if c.lower() == agg_col.lower()), agg_col)
-                        
                     if group_col in df.columns and agg_col in df.columns:
                         df = df.groupby(group_col, as_index=False)[agg_col].agg(agg_func)
 
