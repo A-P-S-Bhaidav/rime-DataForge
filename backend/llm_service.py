@@ -165,8 +165,8 @@ class LLMService:
         if not groq_api_key:
             logger.error("No GROQ_API_KEY found for fallback.")
             return self._fallback_response(user_query)
-            
-        system = self._build_system_prompt(available_datasets)
+        datasets_str = json.dumps(available_datasets, indent=2)
+        system = SYSTEM_PROMPT.format(datasets=datasets_str)
         context_str = ""
         if context:
             if context.get("heard_context"):
