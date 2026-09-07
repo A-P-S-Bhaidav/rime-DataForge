@@ -60,7 +60,10 @@ def pick_filler(query_text: str) -> str:
         phrases = FILLER_PHRASES["financials"]
     else:
         phrases = FILLER_PHRASES["default"]
-    return random.choice(phrases)
+    
+    # Return the first phrase rather than random.choice to allow predictable 
+    # memory caching and guarantee < 500ms TTFB filler latency on every request
+    return phrases[0]
 
 
 class RimeTTS:
@@ -112,6 +115,9 @@ class RimeTTS:
             "reduceLatency": True,
         }
 
+    # Class-level cache for filler audio to guarantee <500ms latency
+    _filler_cache: dict[str, str] = {}
+
     def cancel(self):
         """Cancel the current synthesis by invalidating generation ID."""
         self.active_generation_id = None
@@ -123,6 +129,10 @@ class RimeTTS:
         """
         filler_text = pick_filler(query_text)
         self.last_filler_text = filler_text
+
+        # Check cache first for instant (<10ms) latency
+        if filler_text in self._filler_cache:
+            return self._filler_cache[filler_text]
 
         if not self.api_key:
             logger.warning("No Rime API key — skipping filler")
@@ -136,7 +146,10 @@ class RimeTTS:
                 json=self._body(filler_text, speed=1.1),
             )
             response.raise_for_status()
-            return base64.b64encode(response.content).decode("utf-8")
+            
+            b64_audio = base64.b64encode(response.content).decode("utf-8")
+            self._filler_cache[filler_text] = b64_audio
+            return b64_audio
         except Exception as e:
             logger.error(f"Filler synthesis failed: {e}")
             return None

@@ -86,6 +86,15 @@ async def verify_rime_catalog():
                     
                     if is_in_eng or found:
                         logger.info(f"✅ Rime Preflight Check Passed: Model '{model}' and Voice '{speaker}' are active in the live catalog.")
+                        
+                        # Pre-warm the TTS cache for our predictable filler phrases to ensure <500ms TTFB
+                        logger.info("Pre-warming Rime TTS filler cache...")
+                        tts = RimeTTS(api_key=rime_api_key)
+                        # Generate one for each category using a dummy trigger word
+                        for trigger in ["sale", "user", "profit", "general_query"]:
+                            await tts.synthesize_filler(trigger)
+                        logger.info("✅ Rime TTS filler cache warmed.")
+                        
                     else:
                         logger.warning(f"⚠️ Rime Preflight Warning: Voice '{speaker}' not found for model '{model}' in live catalog.")
                 else:
