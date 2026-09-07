@@ -22,7 +22,7 @@ except ImportError:
     sys.exit(1)
 
 
-WS_URL = "ws://localhost:8000/ws"
+WS_URL = sys.argv[1] if len(sys.argv) > 1 else "ws://localhost:8000/ws"
 RESULTS = {}
 
 
