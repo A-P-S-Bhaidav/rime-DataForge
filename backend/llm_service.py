@@ -7,6 +7,7 @@ import json
 import os
 import re
 import logging
+import httpx
 from typing import Dict, Any, List
 
 from google import genai
@@ -151,19 +152,70 @@ class LLMService:
 
         except Exception as e:
             error_str = str(e).lower()
-            if "429" in error_str or "quota" in error_str:
-                logger.error("Quota error detected.")
-                return {
-                    "dataset": "sales",
-                    "operations": [],
-                    "response_type": "insight",
-                    "detailed_insights": "The AI service is currently experiencing high demand or has exceeded its quota limit. Please try again later.",
-                    "chart_type": None,
-                    "chart_config": None,
-                    "spoken_response": "I'm sorry, but I've reached my quota limit for now. Please try again later.",
-                    "filler_phrase": "Let me check."
-                }
+            if "429" in error_str or "quota" in error_str or "exhausted" in error_str:
+                logger.warning("Gemini quota error detected. Switching to fallback LLM.")
+                return await self._fallback_analyze_query(user_query, context, available_datasets)
+            
             logger.error(f"LLM analysis failed: {e}", exc_info=True)
+            return self._fallback_response(user_query)
+
+    async def _fallback_analyze_query(self, user_query: str, context: dict, available_datasets: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Fallback to Groq API (Llama-3-70B) if Gemini hits rate limits."""
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            logger.error("No GROQ_API_KEY found for fallback.")
+            return self._fallback_response(user_query)
+            
+        system = self._build_system_prompt(available_datasets)
+        context_str = ""
+        if context:
+            if context.get("heard_context"):
+                context_str += "Recent conversation history:\n"
+                for msg in context["heard_context"]:
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    context_str += f"- {role}: {content}\n"
+            
+            last_plan = context.get("last_query_plan")
+            if last_plan:
+                context_str += f"\nPrevious query plan:\n{json.dumps(last_plan, indent=2)}\n"
+
+        user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid JSON object, nothing else."
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {groq_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "llama3-70b-8192",
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "temperature": 0.3,
+                        "response_format": {"type": "json_object"}
+                    },
+                    timeout=15.0
+                )
+                response.raise_for_status()
+                result_json = response.json()
+                raw_text = result_json["choices"][0]["message"]["content"]
+                
+                logger.info(f"Fallback LLM raw response: {raw_text[:200]}")
+                result = self._extract_json(raw_text)
+
+                required = ["dataset", "spoken_response"]
+                for field in required:
+                    if field not in result:
+                        result[field] = ""
+                
+                return result
+        except Exception as e:
+            logger.error(f"Fallback LLM failed: {e}")
             return self._fallback_response(user_query)
 
     def _extract_json(self, text: str) -> dict:
