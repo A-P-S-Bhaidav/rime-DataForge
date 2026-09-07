@@ -304,7 +304,7 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "llama-3.3-70b-versatile",
+                    "model": "llama-3.1-70b-versatile",
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_prompt}
