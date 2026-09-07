@@ -137,8 +137,30 @@ export const DatasetPanel: React.FC<DatasetPanelProps> = ({
             <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Quick queries</div>
               <div className="chips" style={{ justifyContent: 'flex-start' }}>
-                <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery(`Show me an overview of ${dataset.name}`); }}>Overview</div>
-                <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery(`What are the key trends in ${dataset.name}?`); }}>Trends</div>
+                {dataset.id === 'sales' && (
+                  <>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery('Show total sales by region as a bar chart'); }}>By Region</div>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery('Show sales trend by quarter for each product'); }}>Product Trends</div>
+                  </>
+                )}
+                {dataset.id === 'users' && (
+                  <>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery('Show daily active users trend over time as a line chart'); }}>DAU Trend</div>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery('Compare sessions vs new users vs bounce rate over time'); }}>Metrics Compare</div>
+                  </>
+                )}
+                {dataset.id === 'financials' && (
+                  <>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery('Show monthly revenue and profit trend over time'); }}>Revenue Trend</div>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery('Compare revenue, expenses and profit by category'); }}>By Category</div>
+                  </>
+                )}
+                {!['sales', 'users', 'financials'].includes(dataset.id) && (
+                  <>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery(`Show me an overview of ${dataset.name}`); }}>Overview</div>
+                    <div className="chip" onClick={(e) => { e.stopPropagation(); onQuickQuery(`What are the key trends in ${dataset.name}?`); }}>Trends</div>
+                  </>
+                )}
               </div>
             </div>
           )}
