@@ -243,7 +243,7 @@ class LLMService:
         available_datasets: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """Analyze a user query and produce a structured analysis plan."""
-        datasets_str = json.dumps(available_datasets, indent=2)
+        datasets_str = json.dumps(available_datasets, separators=(',', ':'))
         system = SYSTEM_PROMPT.format(datasets=datasets_str)
 
         # Build context
@@ -266,7 +266,7 @@ class LLMService:
                     "chart_type": last_plan.get("chart_type"),
                     "chart_config": last_plan.get("chart_config"),
                 }
-                context_str += f"\n## Previous query plan (the last chart/analysis shown to the user):\n{json.dumps(plan_summary, indent=2)}\n"
+                context_str += f"\n## Previous query plan (the last chart/analysis shown to the user):\n{json.dumps(plan_summary, separators=(',', ':'))}\n"
                 context_str += "\nIMPORTANT: If the user's new query is a follow-up (filter, drill-down, comparison), you MUST build upon the previous plan's dataset and operations. Add/modify filters or groupings as needed.\n"
 
         user_prompt = f"{context_str}\nUser query: {user_query}\n\nReturn ONLY a valid json object, nothing else."

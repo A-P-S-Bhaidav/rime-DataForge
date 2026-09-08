@@ -129,7 +129,7 @@ class DataEngine:
                 "name": col,
                 "dtype": dtype_str,
                 "unique_count": len(unique_vals),
-                "sample_values": [str(v) for v in unique_vals[:5]]
+                "sample_values": [str(v) for v in unique_vals[:3]]
             }
             if dtype_str == "numeric":
                 col_info["min"] = float(df[col].min()) if not pd.isna(df[col].min()) else None
