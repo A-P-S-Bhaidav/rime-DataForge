@@ -304,13 +304,12 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
+                    "model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user_prompt}
                     ],
-                    "temperature": 0.2,
-                    "response_format": {"type": "json_object"}
+                    "temperature": 0.2
                 },
                 timeout=15.0
             )
