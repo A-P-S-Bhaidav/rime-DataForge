@@ -206,12 +206,17 @@ class RimeTTS:
             return
 
         try:
+            # Adaptive speed: longer responses speak slightly faster (up to 1.15x)
+            # to maintain listener engagement. Short responses stay at 1.0x.
+            word_count = len(text.split())
+            adaptive_speed = min(1.0 + (word_count - 20) * 0.005, 1.15) if word_count > 20 else 1.0
+
             # Fetch complete audio (Rime is fast enough for <3 sentence responses)
             client = await self._get_client()
             response = await client.post(
                 self.endpoint,
                 headers=self._headers(),
-                json=self._body(text),
+                json=self._body(text, speed=adaptive_speed),
                 timeout=20.0,
             )
             response.raise_for_status()

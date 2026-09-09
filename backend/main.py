@@ -8,6 +8,7 @@ import json
 import asyncio
 import logging
 import time
+from typing import Optional
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -232,6 +233,30 @@ async def get_metrics():
 
 
 
+def _get_voice_suggestion(llm_result: dict) -> Optional[str]:
+    """
+    Generate a short spoken follow-up suggestion based on the analysis result.
+    This is delivered ONLY via audio — it's a voice-exclusive feature that
+    guides the user's next voice interaction without cluttering the visual UI.
+    """
+    chart_type = llm_result.get("chart_type", "")
+    operations = llm_result.get("operations", [])
+    dataset = llm_result.get("dataset", "")
+
+    # Check if there's a filter already applied
+    has_filter = any(op.get("type") == "filter" for op in operations)
+    has_groupby = any(op.get("type") in ("groupby_agg", "multi_group") for op in operations)
+
+    if has_filter and has_groupby:
+        return "You can say 'show all regions' to remove the filter, or 'break it down by quarter' for a deeper look."
+    elif has_groupby and not has_filter:
+        return "Try saying 'filter for North only' or 'break it down by quarter' to drill deeper."
+    elif chart_type in ("line", "area"):
+        return "You could ask me to zoom into a specific time period, or compare it with another metric."
+    else:
+        return None  # Don't suggest on every query — only when it adds value
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -398,6 +423,28 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
                 conv_state.add_response(spoken_text, gen_id, was_heard=True)
                 conv_state.mark_heard(gen_id)
+
+                # --- STEP 7: Speak follow-up suggestion (voice-only feature) ---
+                # This suggestion is ONLY delivered via audio, not text.
+                # It guides the user's next voice interaction, making the voice
+                # channel essential for the conversational flow.
+                followup = llm_result.get("filler_phrase", "")
+                suggestion = _get_voice_suggestion(llm_result)
+                if suggestion and not cancel_event.is_set():
+                    try:
+                        async for sug_chunk in tts_service.synthesize_streaming(suggestion, gen_id):
+                            if cancel_event.is_set():
+                                break
+                            await send_json_safe({
+                                "type": "audio",
+                                "data": sug_chunk,
+                                "generationId": gen_id,
+                                "isFinal": False,
+                                "isSuggestion": True
+                            })
+                    except Exception:
+                        pass  # Non-critical; don't fail the response
+
                 await send_json_safe({
                     "type": "status",
                     "state": "idle",
