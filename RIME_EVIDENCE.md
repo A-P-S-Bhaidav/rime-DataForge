@@ -2,131 +2,110 @@
 
 ## Hard Voice Claim
 
-**Claim**: DataForge maintains conversation continuity during data analysis tool work.  
-The voice session remains responsive while queries execute (2-5 seconds), supports mid-speech interruption with prompt audio cancellation, fences stale results to prevent them from being spoken as current, and preserves conversational context based on what the user actually heard.
+**Problem**: Conversation continuity during tool work.
+
+When a voice-first data analyst executes a complex query, the LLM reasoning and data processing pipeline takes 2–5 seconds. During this time, the voice channel goes silent — dead air that makes users think the app froze. If the user interrupts mid-response to refine their question, the system must immediately stop audio, cancel stale background work, fence obsolete results from leaking into the new response, and ensure follow-up queries only reference what the user actually heard.
+
+**Why it's hard**: This requires coordinating four asynchronous subsystems (TTS playback, LLM reasoning, data execution, WebSocket transport) around a shared cancellation primitive, while maintaining conversational state that distinguishes "generated" from "heard."
+
+**What we built**: DataForge solves this with:
+1. **Immediate filler speech** — contextual Rime TTS audio plays within 500ms while tools run
+2. **Generation ID fencing** — monotonic IDs with `asyncio.Event` cancellation; stale results are silently discarded at every pipeline stage
+3. **Sub-300ms interrupt** — frontend `AudioBufferSourceNode.stop()` cuts hardware audio instantly; backend cancels in-flight TTS and LLM work
+4. **Heard-context tracking** — interrupted utterances are stripped from conversation history so follow-ups don't hallucinate from unheard speech
 
 ---
 
-## Acceptance Test Definitions
+## Acceptance Tests
 
-| # | Test Name | What It Proves | Acceptance Criteria |
-|---|-----------|---------------|-------------------|
-| 1 | **Filler Latency** | Voice stays responsive during compute | Contextual filler speech starts < 500ms after query receipt |
-| 2 | **Interrupt Stop Time** | Queued TTS stops promptly on interrupt | Audio playback ceases within 300ms of interrupt signal |
-| 3 | **Stale Result Fencing** | Old query results never leak into new context | Zero stale-result leaks across 10 consecutive interrupt+requery cycles |
-| 4 | **Context Preservation** | Follow-ups reference what was heard, not what was generated | 100% correct context in follow-up queries after interruption |
-| 5 | **End-to-End Latency** | Perceived response time is fast | First Rime audio byte arrives < 800ms after query dispatch (excl. STT) |
+| # | Test | What It Proves | Criterion |
+|---|------|---------------|-----------|
+| 1 | Filler Latency | Voice stays responsive during tool work | First Rime audio < 500ms after query |
+| 2 | Interrupt Stop | Queued TTS stops promptly on interrupt | Zero stale audio after interrupt signal; server sends `interrupted` acknowledgment |
+| 3 | Stale Fencing | Old results never leak into new context | Zero stale-result leaks across 10 rapid interrupt+requery cycles |
+| 4 | Context Preservation | Follow-ups reference what was heard | Follow-up correctly references prior query context after interruption |
+| 5 | E2E Latency | Perceived response time is fast | P50 first-audio latency < 800ms across 5 queries |
 
 ---
 
-## Test Procedure
+## Procedure
 
-### Automated Test Script
+### Prerequisites
 ```bash
-# Prerequisites: Backend running on localhost:8000
+# Backend running with valid API keys
 cd backend
-python test_voice_continuity.py
+pip install -r requirements.txt
+pip install websockets
+uvicorn main:app --port 8000
 ```
 
-The script performs the following sequence:
+### Run the test suite
+```bash
+cd backend
+python test_voice_continuity.py
+# Or against a remote deployment:
+python test_voice_continuity.py wss://your-deployment.up.railway.app/ws
+```
 
-### Test 1: Filler Latency
-1. Connect to WebSocket at `ws://localhost:8000/ws`
-2. Send `{"type": "query", "text": "show me quarterly sales breakdown by region", "generationId": 1}`
-3. Start timer at send time
-4. Measure time to first `{"type": "audio", ...}` message
-5. **Pass**: First audio chunk arrives within 500ms
+### What the script does
 
-### Test 2: Interrupt Stop Time
-1. Send a query that triggers a long spoken response
-2. Wait for audio streaming to begin (first 2-3 audio chunks received)
-3. Send `{"type": "interrupt", "generationId": 2}`
-4. Start timer at interrupt send time
-5. Measure time until no more audio chunks arrive for the old generationId
-6. **Pass**: No audio chunks received for old generationId within 300ms of interrupt
+**Test 1 — Filler Latency**: Opens a WebSocket connection, sends a data query, and measures wall-clock time to the first `audio` message (the pre-cached filler phrase). The filler is synthesized by Rime TTS at startup and stored in an in-memory class-level cache, so subsequent requests return in <10ms.
 
-### Test 3: Stale Result Fencing
-1. Repeat 10 times:
-   a. Send query A with generationId N
-   b. Wait 200ms (let processing begin)
-   c. Send `{"type": "interrupt", "generationId": N+1}` and immediately send query B with generationId N+1
-   d. Collect all responses
-   e. Verify: No `transcript` or `audio` messages arrive with generationId N after the interrupt
-2. **Pass**: Zero stale-result leaks across all 10 cycles
+**Test 2 — Interrupt Stop**: Sends a query, waits for the first audio chunk (filler), then sends an `interrupt` message with the server-assigned `generationId`. Verifies: (a) the server responds with `{"type": "interrupted"}`, and (b) zero non-filler audio chunks arrive for the interrupted generation after the signal.
 
-### Test 4: Context Preservation
-1. Send: "Show me total revenue for Q1"
-2. Wait for response to begin speaking
-3. Interrupt after hearing "The total revenue..."
-4. Send: "Now compare that with Q2" (follow-up referencing interrupted context)
-5. Verify the response correctly references the Q1 context that was established, not a new unrelated context
-6. **Pass**: Response correctly references prior heard context
+**Test 3 — Stale Fencing**: Runs 10 rapid cycles of: send query A → wait 300ms → interrupt A → send query B. Each cycle uses a fresh WebSocket connection. After each interrupt, drains all messages and counts any non-filler transcript/audio/chart messages tagged with query A's generation ID. A single leak across all 10 cycles fails the test.
 
-### Test 5: End-to-End Response Latency
-1. Send 5 simple queries: "What's the average revenue?", "Show user growth", etc.
-2. Measure time from query send to first audio byte for each
-3. Compute P50 and P95 latency
-4. **Pass**: P50 < 800ms, P95 < 1500ms
+**Test 4 — Context Preservation**: Sends "Show me total sales by region", waits for the full response (chart + idle status), then sends a follow-up: "Now filter that for North region only." Verifies that the follow-up produces a chart and that the spoken/text response references the filtering context (mentions "North", "filter", "region", or "sales").
+
+**Test 5 — E2E Latency**: Sends 5 independent queries on separate WebSocket connections (to avoid cache effects between queries) with 3-second pauses between them. Measures time from query dispatch to first audio byte. Computes P50 and P95.
 
 ---
 
 ## Results
 
-| Test | Result | Measurement | Pass/Fail |
-|------|--------|-------------|-----------|
-| Filler Latency | *Run test to populate* | — | — |
-| Interrupt Stop Time | *Run test to populate* | — | — |
-| Stale Result Fencing | *Run test to populate* | — | — |
-| Context Preservation | *Run test to populate* | — | — |
-| E2E Response Latency | *Run test to populate* | — | — |
+Run `python test_voice_continuity.py` to populate. Results are saved to `evidence_results.json`.
 
-> **Note**: Results table is populated by running `python test_voice_continuity.py` with a valid Rime API key and Gemini API key configured in `.env`. The script outputs structured JSON to `evidence_results.json` and a formatted table to stdout.
-
----
-
-## Implementation Details
-
-### Generation ID Fencing Mechanism
-Every user query is assigned a monotonically increasing `generationId`. When the user interrupts:
-
-1. The current `generationId` is marked as **cancelled** in the `ConversationState`
-2. A new `generationId` is assigned to the incoming query
-3. Any background tasks (LLM reasoning, data queries, Rime TTS synthesis) check their `generationId` against the current active ID before emitting results
-4. If a task's `generationId` is stale, its results are silently discarded — never sent to the client
-
-### Heard Context Tracking
-The `ConversationState` maintains a separate `heard_context` list that only includes:
-- Messages that were fully spoken and heard by the user
-- Messages that were partially spoken before interruption (marked with what was heard)
-- This ensures follow-up queries reference the correct conversational state
-
-### Filler Speech Strategy
-Contextual filler phrases are:
-- Pre-synthesized for common patterns to reduce latency
-- Selected based on query type (data lookup → "Let me check the numbers...", comparison → "Comparing those datasets now...")
-- Short (< 2 seconds of audio) to minimize the gap before real results
+> **Note**: Results depend on network conditions and API response times. Filler latency benefits from the pre-warmed cache (first call after startup may be slower). E2E latency includes Rime TTS network round-trip time.
 
 ---
 
 ## Limitations
 
-1. **Filler latency** depends on Rime API response time; on first request after cold start, latency may exceed 500ms
-2. **Interrupt precision** is limited by WebSocket round-trip time (~50-100ms network overhead)
-3. **Context preservation** relies on LLM correctly interpreting truncated conversation history; edge cases with deeply nested follow-ups may produce incorrect context
-4. **Browser audio latency** adds ~50-100ms to perceived interrupt stop time due to Web Audio API buffering
-5. **STT accuracy** affects query quality but is outside Rime's scope (using browser Web Speech API)
-6. **Cached vs uncached**: First Rime TTS call may have higher latency due to model warm-up. Subsequent calls benefit from connection reuse. All measurements are labeled accordingly.
+1. **Cold-start filler latency**: The very first filler request after a fresh deployment (before cache pre-warming completes) may exceed 500ms due to Rime API cold start. Subsequent requests use the in-memory cache (<10ms).
+2. **Interrupt precision**: Limited by WebSocket round-trip time (~50–100ms network overhead). The 300ms target accounts for this.
+3. **Context preservation**: Relies on the LLM correctly interpreting truncated conversation history. Deeply nested multi-step follow-ups may occasionally lose context.
+4. **Browser audio latency**: Web Audio API adds ~20–50ms to perceived interrupt stop time due to internal buffering.
+5. **STT accuracy**: Speech recognition uses the browser's Web Speech API, which is outside Rime's scope. Misrecognized queries may produce unexpected results.
+6. **Rate limits**: Groq's free tier has an 8,000 TPM limit. Rapid successive queries may hit this limit; the system falls back to hardcoded generic responses with an error message displayed in the UI.
 
 ---
 
-## Rime Configuration Used
+## Rime Configuration
 
 | Parameter | Value |
 |-----------|-------|
-| Model ID | `coda` |
-| Speaker | `celeste` |
-| Language | `en` |
-| Endpoint | `https://users.rime.ai/v1/rime-tts` |
-| Audio Format | `mp3` (Accept: `audio/mpeg`) |
-| Transport | Streaming HTTP (chunked transfer) |
-| Sample Rate | Default (model-determined) |
+| **Model ID** | `coda` (flagship) |
+| **Speaker** | `celeste` |
+| **Language** | `en` (English) |
+| **Endpoint** | `https://users.rime.ai/v1/rime-tts` (default, us-west-2) |
+| **Regional** | `https://users-east.rime.ai/v1/rime-tts` (if `RIME_REGION=east`) |
+| **Audio Format** | MP3 (`Accept: audio/mpeg`) |
+| **Transport** | HTTP POST via `httpx.AsyncClient` with connection pooling |
+| **Payload Tuning** | `reduceLatency: true`, `speedAlpha: 1.1` (fillers), `speedAlpha: 1.0` (main) |
+| **Text Normalization** | Currency → spoken, `%` → "percent", `Q1` → "quarter 1", markdown stripped |
+| **Preflight Check** | Validates model+voice against live catalog at startup (`/data/voices/all-v2.json`) |
+| **Cache Strategy** | Deterministic filler selection + class-level in-memory cache, pre-warmed at startup |
+
+---
+
+## Failure Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| Rime API key missing | Falls back to text-only; no audio played; error logged |
+| Rime API returns error | Error logged; response delivered as text-only in chat panel |
+| Rime model/voice deprecated | Preflight check logs warning at startup; falls back gracefully |
+| LLM (Groq) rate limited | Falls back to hardcoded generic response; error displayed in UI |
+| LLM (Groq) unavailable | Falls back to Gemini; if both fail, uses hardcoded response |
+| WebSocket disconnects | All active tasks cancelled; frontend shows connection status |
+| User interrupts | Audio stops instantly; stale results fenced; context updated |

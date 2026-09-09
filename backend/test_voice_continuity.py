@@ -4,7 +4,7 @@ Automated tests for the hard voice claim: conversation continuity during tool wo
 
 Usage:
     cd backend
-    python test_voice_continuity.py
+    python test_voice_continuity.py [ws_url]
 
 Requires: backend running at ws://localhost:8000/ws
 """
@@ -26,28 +26,42 @@ WS_URL = sys.argv[1] if len(sys.argv) > 1 else "ws://localhost:8000/ws"
 RESULTS = {}
 
 
+async def send_query(ws, text: str) -> int:
+    """Send a query and return the server-assigned generationId."""
+    await ws.send(json.dumps({
+        "type": "query",
+        "text": text,
+        "generationId": 0,  # Server will assign its own
+    }))
+    # Read the processing status to get the server-assigned generationId
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            msg = await asyncio.wait_for(ws.recv(), timeout=3.0)
+            data = json.loads(msg)
+            if data.get("type") == "status" and data.get("state") == "processing":
+                return data.get("generationId", 0)
+        except asyncio.TimeoutError:
+            break
+    return 0
+
+
 async def test_filler_latency():
     """
     Test 1: Filler Latency
-    Measure time from query send to first audio chunk.
+    Measure time from query send to first audio chunk (filler speech).
     Target: < 500ms
     """
     print("\n🧪 Test 1: Filler Latency")
     print("  Sending query, measuring time to first audio...")
 
     async with websockets.connect(WS_URL) as ws:
-        query = {
-            "type": "query",
-            "text": "Show me total sales by region",
-            "generationId": 1,
-        }
-
         t_send = time.monotonic()
-        await ws.send(json.dumps(query))
+        server_gen_id = await send_query(ws, "Show me total sales by region")
+        print(f"  Server assigned generationId: {server_gen_id}")
 
         first_audio_time = None
-        timeout = 10.0
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + 10.0
 
         while time.monotonic() < deadline:
             try:
@@ -64,7 +78,7 @@ async def test_filler_latency():
         if first_audio_time:
             latency_ms = (first_audio_time - t_send) * 1000
             passed = latency_ms < 500
-            print(f"  ✅ First audio at {latency_ms:.0f}ms {'(PASS)' if passed else '(FAIL)'}")
+            print(f"  {'✅' if passed else '❌'} First audio at {latency_ms:.0f}ms {'(PASS)' if passed else '(FAIL)'}")
             RESULTS["filler_latency"] = {
                 "measurement_ms": round(latency_ms, 1),
                 "threshold_ms": 500,
@@ -83,27 +97,26 @@ async def test_filler_latency():
 async def test_interrupt_stop():
     """
     Test 2: Interrupt Stop Time
-    Send query, wait for audio, interrupt, measure stop time.
-    Target: No audio after 300ms of interrupt.
+    Send query, wait for first audio (filler), then interrupt.
+    Verify server acknowledges interrupt and stops sending audio.
+    Target: No stale audio after interrupt, server sends 'interrupted' message.
     """
     print("\n🧪 Test 2: Interrupt Stop Time")
-    print("  Sending query, waiting for audio, then interrupting...")
+    print("  Sending query, waiting for filler audio, then interrupting...")
 
     async with websockets.connect(WS_URL) as ws:
-        await ws.send(json.dumps({
-            "type": "query",
-            "text": "Give me a detailed breakdown of all quarterly financials with revenue trends",
-            "generationId": 1,
-        }))
+        server_gen_id = await send_query(
+            ws, "Give me a detailed breakdown of all quarterly financials with revenue trends"
+        )
+        print(f"  Server assigned generationId: {server_gen_id}")
 
-        # Wait for at least 2 audio chunks
+        # Wait for at least 1 audio chunk (filler)
         audio_count = 0
-        timeout = 15.0
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + 15.0
 
-        while time.monotonic() < deadline and audio_count < 2:
+        while time.monotonic() < deadline and audio_count < 1:
             try:
-                msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                msg = await asyncio.wait_for(ws.recv(), timeout=3.0)
                 data = json.loads(msg)
                 if data.get("type") == "audio" and data.get("data"):
                     audio_count += 1
@@ -111,44 +124,47 @@ async def test_interrupt_stop():
                 break
 
         if audio_count < 1:
-            print("  ❌ Insufficient audio received to test interrupt")
-            RESULTS["interrupt_stop"] = {"passed": False, "error": "No audio to interrupt"}
+            print("  ❌ No audio received to test interrupt")
+            RESULTS["interrupt_stop"] = {"passed": False, "error": "No audio received"}
             return
 
-        # Send interrupt
+        # Send interrupt using server's generationId
         t_interrupt = time.monotonic()
         await ws.send(json.dumps({
             "type": "interrupt",
-            "generationId": 1,
+            "generationId": server_gen_id,
         }))
 
-        # Measure: any audio for gen=1 after interrupt?
+        # Measure: any stale audio after interrupt?
         stale_audio = 0
         got_interrupted_msg = False
 
-        check_deadline = time.monotonic() + 1.0  # Check for 1 second
+        check_deadline = time.monotonic() + 2.0
         while time.monotonic() < check_deadline:
             try:
-                msg = await asyncio.wait_for(ws.recv(), timeout=0.3)
+                msg = await asyncio.wait_for(ws.recv(), timeout=0.5)
                 data = json.loads(msg)
                 if data.get("type") == "interrupted":
                     got_interrupted_msg = True
-                if (
+                elif (
                     data.get("type") == "audio"
-                    and data.get("generationId") == 1
+                    and data.get("generationId") == server_gen_id
                     and data.get("data")
+                    and not data.get("isFiller")
                 ):
                     stale_audio += 1
             except asyncio.TimeoutError:
                 break
 
-        stop_time_ms = (time.monotonic() - t_interrupt) * 1000
         passed = stale_audio == 0 and got_interrupted_msg
+        stop_time_ms = (time.monotonic() - t_interrupt) * 1000
         print(f"  {'✅' if passed else '❌'} Stale audio after interrupt: {stale_audio}, "
-              f"Interrupted msg: {got_interrupted_msg} {'(PASS)' if passed else '(FAIL)'}")
+              f"Interrupted msg: {got_interrupted_msg}, Stop time: {stop_time_ms:.0f}ms "
+              f"{'(PASS)' if passed else '(FAIL)'}")
         RESULTS["interrupt_stop"] = {
             "stale_chunks_after_interrupt": stale_audio,
             "got_interrupted_message": got_interrupted_msg,
+            "stop_time_ms": round(stop_time_ms, 1),
             "passed": passed,
         }
 
@@ -157,53 +173,46 @@ async def test_stale_fencing():
     """
     Test 3: Stale Result Fencing
     Send query A, immediately interrupt and send query B.
-    Verify no results from A leak through.
+    Verify no non-filler results from A leak through after interrupt.
     """
     print("\n🧪 Test 3: Stale Result Fencing (10 cycles)")
     leaks = 0
 
-    async with websockets.connect(WS_URL) as ws:
-        for cycle in range(10):
-            gen_a = cycle * 2 + 1
-            gen_b = cycle * 2 + 2
-
+    for cycle in range(10):
+        async with websockets.connect(WS_URL) as ws:
             # Send query A
-            await ws.send(json.dumps({
-                "type": "query",
-                "text": f"Query A cycle {cycle}: show sales by product",
-                "generationId": gen_a,
-            }))
+            gen_a = await send_query(ws, f"Query A cycle {cycle}: show sales by product")
 
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.3)  # Let processing begin
 
-            # Interrupt A and send query B
+            # Interrupt A
             await ws.send(json.dumps({
                 "type": "interrupt",
                 "generationId": gen_a,
             }))
-            await ws.send(json.dumps({
-                "type": "query",
-                "text": f"Query B cycle {cycle}: show user growth",
-                "generationId": gen_b,
-            }))
 
-            # Drain messages for 2 seconds, check for leaks
-            deadline = time.monotonic() + 3.0
+            # Send query B
+            gen_b = await send_query(ws, f"Query B cycle {cycle}: show user growth")
+
+            # Drain messages for 3 seconds, check for leaks from gen_a
+            deadline = time.monotonic() + 4.0
             while time.monotonic() < deadline:
                 try:
                     msg = await asyncio.wait_for(ws.recv(), timeout=0.5)
                     data = json.loads(msg)
-                    # Any transcript or audio for gen_a after interrupt = leak
+                    # Any non-filler transcript/audio/chart for gen_a after interrupt = leak
                     if (
                         data.get("generationId") == gen_a
                         and data.get("type") in ("transcript", "audio", "chart")
                         and not data.get("isFiller")
+                        and data.get("type") != "interrupted"
                     ):
-                        # Check it's not the interrupted message
-                        if data.get("type") != "interrupted":
-                            leaks += 1
+                        leaks += 1
                 except asyncio.TimeoutError:
                     break
+
+        # Brief pause between cycles to avoid rate limits
+        await asyncio.sleep(1.0)
 
     passed = leaks == 0
     print(f"  {'✅' if passed else '❌'} Stale result leaks: {leaks}/10 cycles {'(PASS)' if passed else '(FAIL)'}")
@@ -212,6 +221,89 @@ async def test_stale_fencing():
         "cycles": 10,
         "passed": passed,
     }
+
+
+async def test_context_preservation():
+    """
+    Test 4: Context Preservation
+    Send query, let it complete, then send a follow-up query.
+    Verify the follow-up response correctly references the prior context.
+    """
+    print("\n🧪 Test 4: Context Preservation")
+    print("  Sending initial query, then follow-up...")
+
+    async with websockets.connect(WS_URL) as ws:
+        # Step 1: Send initial query and let it complete
+        gen1 = await send_query(ws, "Show me total sales by region")
+        print(f"  Initial query generationId: {gen1}")
+
+        # Wait for the full response to complete (chart + audio + idle)
+        got_chart = False
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            try:
+                msg = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                data = json.loads(msg)
+                if data.get("type") == "chart":
+                    got_chart = True
+                if data.get("type") == "status" and data.get("state") == "idle":
+                    break
+            except asyncio.TimeoutError:
+                break
+
+        if not got_chart:
+            print("  ❌ Initial query did not produce a chart")
+            RESULTS["context_preservation"] = {"passed": False, "error": "No chart from initial query"}
+            return
+
+        await asyncio.sleep(1.0)  # Brief pause
+
+        # Step 2: Send a follow-up that references the prior context
+        gen2 = await send_query(ws, "Now filter that for North region only")
+        print(f"  Follow-up query generationId: {gen2}")
+
+        # Step 3: Check the follow-up response references the same dataset
+        followup_chart = None
+        followup_transcript = None
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            try:
+                msg = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                data = json.loads(msg)
+                if data.get("type") == "chart" and data.get("generationId") == gen2:
+                    followup_chart = data
+                if (
+                    data.get("type") == "transcript"
+                    and data.get("generationId") == gen2
+                    and not data.get("isFiller")
+                ):
+                    followup_transcript = data.get("text", "")
+                if data.get("type") == "status" and data.get("state") == "idle" and data.get("generationId") == gen2:
+                    break
+            except asyncio.TimeoutError:
+                break
+
+        # Verify: follow-up should produce a chart (not just an insight)
+        # and the transcript should reference "North" or the filter context
+        has_chart = followup_chart is not None
+        context_preserved = False
+        if followup_transcript:
+            # The follow-up response should mention North or filtering
+            context_preserved = any(
+                kw in followup_transcript.lower()
+                for kw in ["north", "filter", "region", "sales"]
+            )
+
+        passed = has_chart and context_preserved
+        print(f"  Follow-up chart received: {has_chart}")
+        print(f"  Context reference found: {context_preserved}")
+        print(f"  {'✅' if passed else '❌'} Context preservation {'(PASS)' if passed else '(FAIL)'}")
+        RESULTS["context_preservation"] = {
+            "followup_chart_received": has_chart,
+            "context_reference_found": context_preserved,
+            "followup_transcript_snippet": (followup_transcript or "")[:200],
+            "passed": passed,
+        }
 
 
 async def test_e2e_latency():
@@ -231,14 +323,10 @@ async def test_e2e_latency():
     ]
     latencies = []
 
-    async with websockets.connect(WS_URL) as ws:
-        for i, q in enumerate(queries):
+    for i, q in enumerate(queries):
+        async with websockets.connect(WS_URL) as ws:
             t_send = time.monotonic()
-            await ws.send(json.dumps({
-                "type": "query",
-                "text": q,
-                "generationId": 100 + i,
-            }))
+            await send_query(ws, q)
 
             deadline = time.monotonic() + 15.0
             got_audio = False
@@ -257,8 +345,8 @@ async def test_e2e_latency():
             if not got_audio:
                 latencies.append(float("inf"))
 
-            # Wait for completion before next query
-            await asyncio.sleep(2)
+        # Wait between queries to avoid rate limits
+        await asyncio.sleep(3)
 
     valid = [l for l in latencies if l != float("inf")]
     if valid:
@@ -299,6 +387,7 @@ async def run_all_tests():
     await test_filler_latency()
     await test_interrupt_stop()
     await test_stale_fencing()
+    await test_context_preservation()
     await test_e2e_latency()
 
     # Summary

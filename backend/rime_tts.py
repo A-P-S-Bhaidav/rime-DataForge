@@ -17,6 +17,7 @@ import os
 import base64
 import logging
 import random
+import re
 from typing import AsyncGenerator, Optional
 
 logger = logging.getLogger("dataforge.rime")
@@ -118,6 +119,38 @@ class RimeTTS:
     # Class-level cache for filler audio to guarantee <500ms latency
     _filler_cache: dict[str, str] = {}
 
+    def _normalize_for_speech(self, text: str) -> str:
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        text = re.sub(r'([\d.]+)%', r'\1 percent', text)
+        
+        abbrevs = {
+            r'\bQ1\b': 'quarter 1',
+            r'\bQ2\b': 'quarter 2',
+            r'\bQ3\b': 'quarter 3',
+            r'\bQ4\b': 'quarter 4',
+            r'\bDAU\b': 'daily active users',
+            r'\bYoY\b': 'year over year',
+            r'\bMoM\b': 'month over month'
+        }
+        for pattern, replacement in abbrevs.items():
+            text = re.sub(pattern, replacement, text)
+            
+        def replace_currency(match):
+            val_str = match.group(1).replace(',', '')
+            try:
+                val = float(val_str)
+                if val >= 1000000:
+                    return f"about {round(val/1000000, 1):g} million dollars"
+                elif val >= 1000:
+                    return f"about {round(val/1000)} thousand dollars"
+                else:
+                    return f"{int(val)} dollars"
+            except ValueError:
+                return match.group(0)
+                
+        text = re.sub(r'\$([\d,]+(?:\.\d+)?)', replace_currency, text)
+        return text
+
     def cancel(self):
         """Cancel the current synthesis by invalidating generation ID."""
         self.active_generation_id = None
@@ -128,6 +161,7 @@ class RimeTTS:
         Returns base64-encoded MP3 audio string, or None on failure.
         """
         filler_text = pick_filler(query_text)
+        filler_text = self._normalize_for_speech(filler_text)
         self.last_filler_text = filler_text
 
         # Check cache first for instant (<10ms) latency
@@ -164,6 +198,7 @@ class RimeTTS:
         and crackling in the browser), we fetch the complete audio and split
         it into properly-sized chunks that the browser can decode cleanly.
         """
+        text = self._normalize_for_speech(text)
         self.active_generation_id = generation_id
 
         if not self.api_key:
@@ -174,7 +209,7 @@ class RimeTTS:
             # Fetch complete audio (Rime is fast enough for <3 sentence responses)
             client = await self._get_client()
             response = await client.post(
-                self.RIME_ENDPOINT,
+                self.endpoint,
                 headers=self._headers(),
                 json=self._body(text),
                 timeout=20.0,

@@ -483,6 +483,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif msg_type == "interrupt":
                 target_gen_id = data.get("generationId")
+                # If client-provided ID doesn't match an active task,
+                # fall back to the most recent (current) generation
+                if target_gen_id not in conv_state.active_tasks and conv_state.current_generation_id > 0:
+                    target_gen_id = conv_state.current_generation_id
+                
                 if target_gen_id is not None:
                     # Cancel the specified generation
                     conv_state.interrupt(target_gen_id)

@@ -99,13 +99,17 @@ Navigate to `http://localhost:5173` in a browser that supports Web Speech API (C
 
 | Parameter | Value |
 |-----------|-------|
-| **Model ID** | `coda` |
+| **Model ID** | `coda` (flagship) |
 | **Speaker** | `celeste` |
 | **Language** | `en` (English) |
-| **Endpoint** | `https://users.rime.ai/v1/rime-tts` |
-| **Audio Format** | `mp3` (`Accept: audio/mpeg`) |
-| **Transport** | Streaming HTTP (chunked transfer encoding) |
-| **Sample Rate** | Default (model-determined, ~24kHz) |
+| **Endpoint** | `https://users.rime.ai/v1/rime-tts` (default, us-west-2) |
+| **Regional** | `https://users-east.rime.ai/v1/rime-tts` (configurable via `RIME_REGION=east`) |
+| **Audio Format** | MP3 (`Accept: audio/mpeg`) |
+| **Transport** | HTTP POST via `httpx.AsyncClient` with connection pooling |
+| **Payload Tuning** | `reduceLatency: true`, `speedAlpha: 1.1` (fillers), `1.0` (main) |
+| **Text Normalization** | Currency → spoken, `%` → "percent", `Q1` → "quarter 1", markdown stripped |
+| **Preflight** | Model+voice validated against live catalog at startup |
+| **Cache** | Deterministic filler selection + class-level in-memory cache, pre-warmed at boot |
 
 ---
 
@@ -114,7 +118,8 @@ Navigate to `http://localhost:5173` in a browser that supports Web Speech API (C
 | Service | Purpose | Required |
 |---------|---------|----------|
 | **Rime AI** | Text-to-Speech synthesis (primary spoken output) | ✅ Yes |
-| **Google Gemini** | LLM for natural language → data analysis translation | ✅ Yes |
+| **Groq** | Primary LLM for natural language → data query translation | ✅ Yes |
+| **Google Gemini** | Fallback LLM (used when Groq is unavailable) | Optional |
 | **Web Speech API** | Browser-native speech recognition (no API key needed) | Built-in |
 
 ---
@@ -146,9 +151,12 @@ See [RIME_EVIDENCE.md](./RIME_EVIDENCE.md) for complete acceptance tests, proced
 | Scenario | Behavior |
 |----------|----------|
 | **Rime API unavailable** | Falls back to text-only response displayed in chat panel; error logged |
-| **Gemini API unavailable** | Returns error message explaining the issue; suggests retrying |
+| **Rime model/voice deprecated** | Preflight check logs warning at startup; falls back gracefully |
+| **Groq API rate limited** | Falls back to Gemini; if both fail, returns hardcoded generic response with error in UI |
+| **Groq/Gemini unavailable** | Cascade fallback: Groq → Gemini → hardcoded response; errors surfaced in insights panel |
 | **WebSocket disconnected** | Frontend shows reconnecting indicator; auto-reconnects with backoff |
 | **Speech recognition fails** | Text input fallback available in voice control bar |
+| **User interrupts** | Audio stops instantly; stale results fenced; heard-context updated |
 | **Unsupported browser** | Displays message suggesting Chrome; text input available as fallback |
 
 ---
@@ -172,7 +180,7 @@ Set environment variable in Vercel dashboard:
 2. Connect repository to Railway/Render
 3. Set build command: `pip install -r requirements.txt`
 4. Set start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-5. Add environment variables: `RIME_API_KEY`, `GEMINI_API_KEY`
+5. Add environment variables: `RIME_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY`
 
 ---
 
