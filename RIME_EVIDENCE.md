@@ -13,6 +13,9 @@ When a voice-first data analyst executes a complex query, the LLM reasoning and 
 2. **Generation ID fencing** — monotonic IDs with `asyncio.Event` cancellation; stale results are silently discarded at every pipeline stage
 3. **Sub-300ms interrupt** — frontend `AudioBufferSourceNode.stop()` cuts hardware audio instantly; backend cancels in-flight TTS and LLM work
 4. **Heard-context tracking** — interrupted utterances are stripped from conversation history so follow-ups don't hallucinate from unheard speech
+5. **Voice-only follow-up suggestions** — after narrating results, Celeste speaks a contextual next-action prompt (e.g., "Try saying 'filter for North only'"). These suggestions exist *only* in the audio channel — they're never shown in text, making voice the primary interaction channel
+6. **Adaptive TTS speed** — longer responses automatically speak up to 1.15× faster to maintain listener engagement; short responses stay at natural 1.0× pace
+7. **TTS text normalization** — `$1,234,567` → "about 1.2 million dollars", `28.3%` → "28.3 percent", `Q1` → "quarter 1", markdown stripped — so Rime's delivery is always natural
 
 ---
 

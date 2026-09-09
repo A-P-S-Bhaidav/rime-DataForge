@@ -133,6 +133,9 @@ See [RIME_EVIDENCE.md](./RIME_EVIDENCE.md) for complete acceptance tests, proced
 2. **Generation ID Fencing** — Each query gets a monotonic ID; stale results are silently discarded
 3. **Interrupt Recovery** — Audio stops within 300ms; context updates to what was actually heard
 4. **Heard Context Tracking** — Follow-up queries reference the correct conversational state
+5. **Voice-Only Suggestions** — Celeste speaks follow-up prompts that exist only in audio, not text
+6. **Adaptive TTS Speed** — Longer responses automatically speak faster (up to 1.15×) for engagement
+7. **Text Normalization** — Currency, percentages, and abbreviations are converted to natural speech
 
 ---
 
