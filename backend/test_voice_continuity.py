@@ -1,5 +1,5 @@
 """
-DataForge Voice Continuity Evidence Test Script
+DataVocal Voice Continuity Evidence Test Script
 Automated tests for the hard voice claim: conversation continuity during tool work.
 
 Usage:
@@ -379,7 +379,7 @@ async def test_e2e_latency():
 async def run_all_tests():
     """Run all evidence tests."""
     print("=" * 60)
-    print("DataForge Voice Continuity Evidence Tests")
+    print("DataVocal Voice Continuity Evidence Tests")
     print("=" * 60)
     print(f"Target: {WS_URL}")
 

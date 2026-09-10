@@ -1,5 +1,5 @@
 """
-Data Analysis Engine for DataForge
+Data Analysis Engine for DataVocal
 Generates synthetic datasets and executes Pandas operations.
 """
 

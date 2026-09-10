@@ -1,4 +1,4 @@
-# RIME_EVIDENCE.md — DataForge Voice Continuity Evidence
+# RIME_EVIDENCE.md — DataVocal Voice Continuity Evidence
 
 ## Hard Voice Claim
 
@@ -8,7 +8,7 @@ When a voice-first data analyst executes a complex query, the LLM reasoning and 
 
 **Why it's hard**: This requires coordinating four asynchronous subsystems (TTS playback, LLM reasoning, data execution, WebSocket transport) around a shared cancellation primitive, while maintaining conversational state that distinguishes "generated" from "heard."
 
-**What we built**: DataForge solves this with:
+**What we built**: DataVocal solves this with:
 1. **Immediate filler speech** — contextual Rime TTS audio plays within 500ms while tools run
 2. **Generation ID fencing** — monotonic IDs with `asyncio.Event` cancellation; stale results are silently discarded at every pipeline stage
 3. **Sub-300ms interrupt** — frontend `AudioBufferSourceNode.stop()` cuts hardware audio instantly; backend cancels in-flight TTS and LLM work

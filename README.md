@@ -1,9 +1,9 @@
-# DataForge — Voice-Native Real-Time Data Analyst
+# DataVocal — Voice-Native Real-Time Data Analyst
 
 > **Rime Hackathon Submission** | Team RuntimeTerror  
 > Hard Voice Problem: **Conversation Continuity During Tool Work**
 
-DataForge is a voice-first data exploration tool where users speak natural-language queries and receive **streaming spoken insights** via Rime TTS while interactive visualizations render simultaneously. The voice channel is essential — users explore data hands-free through conversation, with the assistant narrating trends, calling out anomalies, and confirming actions while their eyes stay on the charts.
+DataVocal is a voice-first data exploration tool where users speak natural-language queries and receive **streaming spoken insights** via Rime TTS while interactive visualizations render simultaneously. The voice channel is essential — users explore data hands-free through conversation, with the assistant narrating trends, calling out anomalies, and confirming actions while their eyes stay on the charts.
 
 ---
 
@@ -13,7 +13,7 @@ DataForge is a voice-first data exploration tool where users speak natural-langu
 
 **Problem**: Traditional data tools require typing SQL/queries and reading text results. This creates friction and context-switching that slows exploration.
 
-**Solution**: DataForge replaces typing with speech and reading with listening. Users speak queries like *"Show me sales by region for Q3"* and hear spoken insights while charts animate on screen.
+**Solution**: DataVocal replaces typing with speech and reading with listening. Users speak queries like *"Show me sales by region for Q3"* and hear spoken insights while charts animate on screen.
 
 **Why Voice is Essential**: Removing speech leaves the product materially worse. The spoken channel provides:
 - Hands-free operation during meetings or fieldwork
@@ -64,8 +64,8 @@ DataForge is a voice-first data exploration tool where users speak natural-langu
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/A-P-S-Bhaidav/rime-DataForge.git
-cd rime-DataForge
+git clone https://github.com/A-P-S-Bhaidav/rime-DataVocal.git
+cd rime-DataVocal
 ```
 
 ### 2. Configure Environment
@@ -190,7 +190,7 @@ Set environment variable in Vercel dashboard:
 ## 📂 Project Structure
 
 ```
-rime-DataForge/
+rime-DataVocal/
 ├── .env.example          # Environment template (placeholders only)
 ├── .gitignore
 ├── README.md             # This file

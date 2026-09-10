@@ -1,5 +1,5 @@
 """
-Conversation State Manager for DataForge
+Conversation State Manager for DataVocal
 Handles generation IDs, cancellation fencing, and heard-context tracking.
 """
 

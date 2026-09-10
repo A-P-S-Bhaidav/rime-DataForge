@@ -1,5 +1,5 @@
 """
-LLM Service for DataForge — Google Gemini Integration
+LLM Service for DataVocal — Google Gemini Integration
 Translates natural language queries into data analysis plans.
 """
 
@@ -15,7 +15,7 @@ from google.genai import types
 
 logger = logging.getLogger("dataforge.llm")
 
-SYSTEM_PROMPT = """You are DataForge, a highly intelligent voice-native AI data analyst. You analyze ANY dataset — built-in or user-uploaded — and produce the most insightful analysis possible.
+SYSTEM_PROMPT = """You are DataVocal, a highly intelligent voice-native AI data analyst. You analyze ANY dataset — built-in or user-uploaded — and produce the most insightful analysis possible.
 
 ## Available Datasets
 {datasets}

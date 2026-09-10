@@ -1,5 +1,5 @@
 """
-DataForge Backend — FastAPI WebSocket Server
+DataVocal Backend — FastAPI WebSocket Server
 Voice-native real-time data analysis with Rime TTS
 """
 
@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger("dataforge")
 
 app = FastAPI(
-    title="DataForge API",
+    title="DataVocal API",
     description="Voice-native real-time data analyst powered by Rime TTS",
     version="1.0.0"
 )
@@ -564,5 +564,5 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
-    logger.info(f"Starting DataForge on port {port}")
+    logger.info(f"Starting DataVocal on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

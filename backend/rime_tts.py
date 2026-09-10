@@ -1,5 +1,5 @@
 """
-Rime TTS Client for DataForge
+Rime TTS Client for DataVocal
 Handles synthesis, filler speech, and cancellation.
 
 Rime Configuration:

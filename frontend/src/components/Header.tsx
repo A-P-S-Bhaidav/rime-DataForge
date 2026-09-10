@@ -29,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({ connectionState, appState }) => 
             </linearGradient>
           </defs>
         </svg>
-        DataForge
+        DataVocal
       </div>
       
       <div className="status-badges">
